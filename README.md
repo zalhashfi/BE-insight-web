@@ -1,6 +1,6 @@
 # Insight Web Backend
 
-This is the backend API for the Biru Langit (Blue Sky) Web Insight Platform. It is a modern, serverless API built on Cloudflare Workers using the Hono web framework. It handles user authentication, IoT data ingestion, ticketing, and station management using a MySQL database via Drizzle ORM.
+This is the backend API for the Insight Laboratory Web Platform. It is a modern, serverless API built on Cloudflare Workers using the Hono web framework. It handles user authentication, IoT data ingestion, ticketing, and station management using a MySQL database via Drizzle ORM.
 
 ## Key Features
 
