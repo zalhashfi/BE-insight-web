@@ -53,6 +53,7 @@ const parseNum = z.preprocess((val) => {
 }, z.number().optional());
 
 const aqmsPayloadSchema = z.object({
+  created_at: z.string().optional(),
   pm25: z.preprocess((val) => {
     if (val === "" || val === "NULL" || val === null || val === undefined) return undefined;
     const parsed = Number(val);
@@ -67,6 +68,7 @@ const aqmsPayloadSchema = z.object({
 });
 
 const socPayloadSchema = z.object({
+  created_at: z.string().optional(),
   ph: z.preprocess((val) => {
     if (val === "" || val === "NULL" || val === null || val === undefined) return undefined;
     const parsed = Number(val);
@@ -121,6 +123,7 @@ iotRouter.post('/ingest', async (c) => {
       const validData = parseResult.data;
       if (validData.pm25 !== undefined) {
         try {
+          const measuredAt = validData.created_at ? new Date(validData.created_at) : new Date();
           await db.insert(dataAqms).values({
             stationUuid: currentStation.uuid,
             pm25: validData.pm25,
@@ -130,7 +133,7 @@ iotRouter.post('/ingest', async (c) => {
             hum: validData.humidity,
             ws: validData.ws,
             wd: validData.wd,
-            measuredAt: new Date()
+            measuredAt: measuredAt
           });
         } catch (dbErr: any) {
           console.error("DB Insert Error AQMS:", dbErr);
@@ -149,6 +152,7 @@ iotRouter.post('/ingest', async (c) => {
       const validData = parseResult.data;
       if (validData.ph !== undefined || validData.n !== undefined) {
         try {
+          const measuredAt = validData.created_at ? new Date(validData.created_at) : new Date();
           await db.insert(dataSoc).values({
             stationUuid: currentStation.uuid,
             ph: validData.ph,
@@ -159,7 +163,7 @@ iotRouter.post('/ingest', async (c) => {
             n: validData.n,
             p: validData.p,
             k: validData.k,
-            measuredAt: new Date()
+            measuredAt: measuredAt
           });
         } catch (dbErr: any) {
           console.error("DB Insert Error SOC:", dbErr);
