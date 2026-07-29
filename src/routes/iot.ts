@@ -46,25 +46,41 @@ iotRouter.post('/identity', zValidator('json', identitySchema, (result, c) => {
   return c.json({ uuid: stations[0].uuid }, 200);
 });
 
+const parseNum = z.preprocess((val) => {
+  if (val === "" || val === "NULL" || val === null || val === undefined) return undefined;
+  const parsed = Number(val);
+  return isNaN(parsed) ? undefined : parsed;
+}, z.number().optional());
+
 const aqmsPayloadSchema = z.object({
-  pm25: z.number().min(0).max(1000).optional(),
-  no2: z.number().optional(),
-  co: z.number().optional(),
-  temp: z.number().optional(),
-  hum: z.number().optional(),
-  ws: z.number().optional(),
-  wd: z.number().optional(),
+  created_at: z.string().optional(),
+  pm25: z.preprocess((val) => {
+    if (val === "" || val === "NULL" || val === null || val === undefined) return undefined;
+    const parsed = Number(val);
+    return isNaN(parsed) ? undefined : parsed;
+  }, z.number().min(0).max(1000).optional()),
+  no2: parseNum,
+  co2: parseNum,
+  temperature: parseNum,
+  humidity: parseNum,
+  ws: parseNum,
+  wd: parseNum,
 });
 
 const socPayloadSchema = z.object({
-  ph: z.number().min(0).max(14).optional(),
-  no2: z.number().optional(),
-  ec: z.number().optional(),
-  temp: z.number().optional(),
-  hum: z.number().optional(),
-  n: z.number().optional(),
-  p: z.number().optional(),
-  k: z.number().optional(),
+  created_at: z.string().optional(),
+  ph: z.preprocess((val) => {
+    if (val === "" || val === "NULL" || val === null || val === undefined) return undefined;
+    const parsed = Number(val);
+    return isNaN(parsed) ? undefined : parsed;
+  }, z.number().min(0).max(14).optional()),
+  no2: parseNum,
+  ec: parseNum,
+  temp: parseNum,
+  hum: parseNum,
+  n: parseNum,
+  p: parseNum,
+  k: parseNum,
 });
 
 iotRouter.post('/ingest', async (c) => {
@@ -106,18 +122,28 @@ iotRouter.post('/ingest', async (c) => {
     if (parseResult.success) {
       const validData = parseResult.data;
       if (validData.pm25 !== undefined) {
-        await db.insert(dataAqms).values({
-          stationUuid: currentStation.uuid,
-          pm25: validData.pm25,
-          no2: validData.no2,
-          co: validData.co,
-          temp: validData.temp,
-          hum: validData.hum,
-          ws: validData.ws,
-          wd: validData.wd,
-          measuredAt: new Date()
-        });
+        try {
+          const measuredAt = validData.created_at ? new Date(validData.created_at) : new Date();
+          await db.insert(dataAqms).values({
+            stationUuid: currentStation.uuid,
+            pm25: validData.pm25,
+            no2: validData.no2,
+            co: validData.co2,
+            temp: validData.temperature,
+            hum: validData.humidity,
+            ws: validData.ws,
+            wd: validData.wd,
+            measuredAt: measuredAt
+          });
+        } catch (dbErr: any) {
+          console.error("DB Insert Error AQMS:", dbErr);
+          return c.json({ error: 'Database insert failed for AQMS', details: dbErr.message }, 500);
+        }
+      } else {
+        return c.json({ error: 'pm25 is missing or invalid', parsed: validData }, 400);
       }
+    } else {
+      return c.json({ error: 'AQMS payload validation failed', details: parseResult.error }, 400);
     }
   } else if (currentStation.type === 'soc') {
     const parseResult = socPayloadSchema.safeParse(payload);
@@ -125,20 +151,32 @@ iotRouter.post('/ingest', async (c) => {
     if (parseResult.success) {
       const validData = parseResult.data;
       if (validData.ph !== undefined || validData.n !== undefined) {
-        await db.insert(dataSoc).values({
-          stationUuid: currentStation.uuid,
-          ph: validData.ph,
-          no2: validData.no2,
-          ec: validData.ec,
-          temp: validData.temp,
-          hum: validData.hum,
-          n: validData.n,
-          p: validData.p,
-          k: validData.k,
-          measuredAt: new Date()
-        });
+        try {
+          const measuredAt = validData.created_at ? new Date(validData.created_at) : new Date();
+          await db.insert(dataSoc).values({
+            stationUuid: currentStation.uuid,
+            ph: validData.ph,
+            no2: validData.no2,
+            ec: validData.ec,
+            temp: validData.temp,
+            hum: validData.hum,
+            n: validData.n,
+            p: validData.p,
+            k: validData.k,
+            measuredAt: measuredAt
+          });
+        } catch (dbErr: any) {
+          console.error("DB Insert Error SOC:", dbErr);
+          return c.json({ error: 'Database insert failed for SOC', details: dbErr.message }, 500);
+        }
+      } else {
+        return c.json({ error: 'ph or n is missing or invalid', parsed: validData }, 400);
       }
+    } else {
+      return c.json({ error: 'SOC payload validation failed', details: parseResult.error }, 400);
     }
+  } else {
+    return c.json({ error: 'Unknown or missing station type', type: currentStation.type }, 400);
   }
 
   return c.json({ message: 'Data ingested successfully' }, 200);
