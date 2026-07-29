@@ -65,6 +65,10 @@ stationsRouter.post('/', zValidator('json', createStationSchema, (result, c) => 
       updatedAt: new Date()
     });
 
+    if (macAddress) {
+      await db.delete(unregisteredDevices).where(eq(unregisteredDevices.macAddress, macAddress));
+    }
+
     return c.json({ message: 'Station created successfully' }, 201);
   } catch (error: any) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -73,6 +77,24 @@ stationsRouter.post('/', zValidator('json', createStationSchema, (result, c) => 
     return c.json({ error: 'Error creating station' }, 500);
   }
 });
+
+stationsRouter.delete('/unregistered/:macAddress', async (c) => {
+  const db = c.get('db');
+  const payload = c.get('jwtPayload');
+  const macAddress = c.req.param('macAddress');
+  
+  if (payload?.role !== 'admin' && payload?.role !== 'engineer') {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  try {
+    await db.delete(unregisteredDevices).where(eq(unregisteredDevices.macAddress, macAddress));
+    return c.json({ message: 'Unregistered device deleted successfully' }, 200);
+  } catch (error: any) {
+    return c.json({ error: 'Error deleting unregistered device' }, 500);
+  }
+});
+
 stationsRouter.get('/:uuid', async (c) => {
   const db = c.get('db');
   const uuid = c.req.param('uuid');
