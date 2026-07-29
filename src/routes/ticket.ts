@@ -20,7 +20,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 
 const createTicketSchema = z.object({
-  stationUuid: z.string().uuid(),
+  stationUuid: z.string().min(3).max(20),
   issueTitle: z.string().min(3).max(255),
   issueDescription: z.string().min(10)
 });

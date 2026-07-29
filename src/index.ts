@@ -8,6 +8,7 @@ import { usersRouter } from './routes/users';
 import { stationsRouter } from './routes/stations';
 import { dataRouter } from './routes/data';
 import { logsRouter } from './routes/logs';
+import { firmwareRouter } from './routes/firmware';
 import { logger } from 'hono/logger';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
@@ -77,6 +78,9 @@ app.onError((err, c) => {
   console.error('Unhandled Exception:', err);
 
   if (err instanceof HTTPException) {
+    if (err.status === 401) {
+      return c.json({ error: 'Unauthorized', message: err.message }, 401);
+    }
     return err.getResponse();
   }
 
@@ -100,6 +104,7 @@ app.use('/api/tickets/*', jwtAuth);
 app.use('/api/users/*', jwtAuth);
 app.use('/api/stations/*', jwtAuth);
 app.use('/api/data/*', jwtAuth);
+app.use('/api/firmware/*', jwtAuth);
 
 // Endpoint to check auth status (so frontend doesn't need to read localStorage)
 app.get('/api/auth/me', jwtAuth, (c) => {
@@ -144,6 +149,7 @@ app.route('/api/tickets', ticketRouter);
 app.route('/api/users', usersRouter);
 app.route('/api/stations', stationsRouter);
 app.route('/api/data', dataRouter);
+app.route('/api/firmware', firmwareRouter);
 
 app.get('/api', (c) => {
   return c.json({ message: 'Welcome to Biru Langit API' });
