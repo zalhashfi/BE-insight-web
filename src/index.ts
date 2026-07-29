@@ -78,6 +78,9 @@ app.onError((err, c) => {
   console.error('Unhandled Exception:', err);
 
   if (err instanceof HTTPException) {
+    if (err.status === 401) {
+      return c.json({ error: 'Unauthorized', message: err.message }, 401);
+    }
     return err.getResponse();
   }
 
