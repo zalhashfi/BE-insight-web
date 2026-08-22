@@ -33,5 +33,32 @@ npm install
 npm run dev
 ```
 
-## Konfigurasi Database (Hyperdrive)
-Aplikasi ini di-desain untuk berjalan pada jaringan Cloudflare dengan *connection pooling* via Hyperdrive ke *database* MySQL eksternal (contoh: Neon atau layanan DB konvensional lainnya). Semua migrasi tabel di-*handle* via skema Drizzle ORM yang terdapat pada `src/db/schema.ts`.
+## Deployment (Hostinger Shared / Cloud Hosting)
+
+Backend ini berjalan sebagai **Node.js App** di Hostinger (Express.js + Pure SQL / `mysql2`), bukan Cloudflare Workers. Panduan lengkap ada di [`HOSTINGER_DEPLOYMENT.md`](./HOSTINGER_DEPLOYMENT.md). Ringkasannya:
+
+1. **Upload source code** ke folder *Application Root* (mis. `domains/namadomain.com/backend`) via Git/File Manager/FTP.
+2. **Build command:**
+   ```bash
+   npm install
+   npm run build   # tsc -> output ke folder dist/
+   ```
+3. **Publish / Build directory:** `dist` (hasil compile `src/` → `dist/`).
+4. **Application startup file:** `dist/index.js`
+5. **Menjalankan:** `npm start` (menjalankan `node dist/index.js`), atau tombol **Restart** di menu Node.js hPanel.
+6. **Environment config** — buat file `.env` di root proyek (lihat `.env.example`):
+   ```env
+   PORT=3000
+   NODE_ENV=production
+   DB_HOST=localhost
+   DB_USER=u1234567_dbuser
+   DB_PASSWORD=PasswordKuatDB123!
+   DB_NAME=u1234567_insight_db
+   DB_PORT=3306
+   JWT_SECRET=rahasia_jwt_produksi_sangat_panjang_dan_aman
+   IOT_DEVICE_SECRET=rahasia_iot_device_shared_key
+   ```
+7. **Verifikasi:** `curl https://api.namadomain.com/health` harus mengembalikan `{"status":"ok","timestamp":"..."}`.
+
+## Konfigurasi Database
+Aplikasi terhubung langsung ke MySQL di Hostinger via `mysql2/promise` (lihat `src/db/`). Semua query ditulis dengan *Pure SQL* (tanpa ORM). Inisialisasi tabel via `npm run db:init` (menjalankan `src/db/init.ts`).
