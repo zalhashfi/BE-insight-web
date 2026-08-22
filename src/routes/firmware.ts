@@ -1,113 +1,60 @@
-import { Hono } from 'hono';
-import { firmwareRelease } from '../db/schema';
-import { eq, desc } from 'drizzle-orm';
-import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
+import { Router, Request, Response } from 'express';
+import { query } from '../db/pool.js';
 
-export const firmwareRouter = new Hono<{ Variables: { db: any, jwtPayload: any } }>();
+export const firmwareRouter = Router();
 
-firmwareRouter.get('/', async (c) => {
-  const db = c.get('db');
-  const payload = c.get('jwtPayload');
-  
-  if (payload?.role !== 'admin' && payload?.role !== 'engineer') {
-    return c.json({ error: 'Forbidden' }, 403);
+// 1. GET / - List all from firmware_release order by created_at desc
+firmwareRouter.get('/', async (req: Request, res: Response) => {
+  try {
+    const releases = await query('SELECT * FROM firmware_release ORDER BY created_at DESC');
+    return res.status(200).json({ data: releases });
+  } catch (err: any) {
+    console.error('Failed to fetch firmware releases:', err);
+    return res.status(500).json({ error: 'Failed to fetch firmware releases', details: err.message });
   }
-
-  const releases = await db.select().from(firmwareRelease).orderBy(desc(firmwareRelease.createdAt));
-  return c.json({ data: releases }, 200);
 });
 
-const createFirmwareSchema = z.object({
-  projectName: z.string().min(2).max(100),
-  version: z.string().min(1).max(20),
-  binFileUrl: z.string().url(),
-  releaseNotes: z.string().optional(),
-  isLatest: z.boolean().optional(),
-});
-
-firmwareRouter.post('/', zValidator('json', createFirmwareSchema, (result, c) => {
-  if (!result.success) {
-    return c.json({ error: 'Validation failed', details: result.error.format() }, 400);
-  }
-}), async (c) => {
-  const db = c.get('db');
-  const payload = c.get('jwtPayload');
-  
-  if (payload?.role !== 'admin' && payload?.role !== 'engineer') {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
-
-  const { projectName, version, binFileUrl, releaseNotes, isLatest } = c.req.valid('json');
+// 3. GET /:projectName/latest - Get latest release for specific project
+firmwareRouter.get('/:projectName/latest', async (req: Request, res: Response) => {
+  const projectName = req.params.projectName;
 
   try {
-    if (isLatest) {
-      await db.update(firmwareRelease).set({ isLatest: false }).where(eq(firmwareRelease.projectName, projectName));
-    }
-    
-    await db.insert(firmwareRelease).values({
-      projectName,
-      version,
-      binFileUrl,
-      releaseNotes,
-      isLatest: isLatest || false,
-      createdAt: new Date()
-    });
+    const releases = await query<any[]>(
+      'SELECT * FROM firmware_release WHERE project_name = ? ORDER BY created_at DESC LIMIT 1',
+      [projectName]
+    );
 
-    return c.json({ message: 'Firmware release created successfully' }, 201);
-  } catch (error: any) {
-    return c.json({ error: 'Error creating firmware release' }, 500);
+    if (!releases || releases.length === 0) {
+      return res.status(404).json({ error: 'No firmware release found for this project' });
+    }
+
+    return res.status(200).json({ data: releases[0] });
+  } catch (err: any) {
+    console.error('Failed to fetch latest firmware release:', err);
+    return res.status(500).json({ error: 'Failed to fetch latest firmware release', details: err.message });
   }
 });
 
-firmwareRouter.put('/:id', async (c) => {
-  const db = c.get('db');
-  const payload = c.get('jwtPayload');
-  const id = parseInt(c.req.param('id'), 10);
-  
-  if (isNaN(id)) {
-    return c.json({ error: 'Invalid ID' }, 400);
-  }
-
-  if (payload?.role !== 'admin' && payload?.role !== 'engineer') {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
-
+// 2. POST / - Create release (project_name, version, bin_file_url, changelog)
+firmwareRouter.post('/', async (req: Request, res: Response) => {
   try {
-    const body = await c.req.json();
-    const validData = createFirmwareSchema.partial().parse(body);
+    const { project_name, version, bin_file_url, changelog = null } = req.body;
 
-    if (validData.isLatest && validData.projectName) {
-      await db.update(firmwareRelease).set({ isLatest: false }).where(eq(firmwareRelease.projectName, validData.projectName));
+    if (!project_name || !version || !bin_file_url) {
+      return res.status(400).json({ error: 'Missing required fields: project_name, version, bin_file_url' });
     }
 
-    await db.update(firmwareRelease).set(validData).where(eq(firmwareRelease.id, id));
-    return c.json({ message: 'Firmware release updated successfully' }, 200);
-  } catch (error: any) {
-    if (error instanceof z.ZodError) {
-      return c.json({ error: 'Validation failed', details: error.format() }, 400);
+    await query(
+      'INSERT INTO firmware_release (project_name, version, bin_file_url, changelog) VALUES (?, ?, ?, ?)',
+      [project_name, version, bin_file_url, changelog]
+    );
+
+    return res.status(201).json({ message: 'Firmware release created successfully' });
+  } catch (err: any) {
+    if (err.code === 'ER_DUP_ENTRY' || err.message?.includes('uk_project_version')) {
+      return res.status(409).json({ error: 'Firmware version for this project already exists' });
     }
-    return c.json({ error: 'Error updating firmware release' }, 500);
-  }
-});
-
-firmwareRouter.delete('/:id', async (c) => {
-  const db = c.get('db');
-  const payload = c.get('jwtPayload');
-  const id = parseInt(c.req.param('id'), 10);
-  
-  if (isNaN(id)) {
-    return c.json({ error: 'Invalid ID' }, 400);
-  }
-
-  if (payload?.role !== 'admin') {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
-
-  try {
-    await db.delete(firmwareRelease).where(eq(firmwareRelease.id, id));
-    return c.json({ message: 'Firmware release deleted successfully' }, 200);
-  } catch (error: any) {
-    return c.json({ error: 'Error deleting firmware release' }, 500);
+    console.error('Failed to create firmware release:', err);
+    return res.status(500).json({ error: 'Failed to create firmware release', details: err.message });
   }
 });
