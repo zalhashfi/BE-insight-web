@@ -1,231 +1,178 @@
-import { Hono } from 'hono';
-import { eq, desc } from 'drizzle-orm';
-import { station, rawSensorLog, dataAqms, dataSoc, firmwareRelease, unregisteredDevices } from '../db/schema';
-import { zValidator } from '@hono/zod-validator';
-import { z } from 'zod';
-import { sql } from 'drizzle-orm';
+import { Router, Request, Response } from 'express';
+import { query } from '../db/pool.js';
 
-export const iotRouter = new Hono<{ Bindings: { IOT_DEVICE_SECRET: string }, Variables: { db: any } }>();
+export const iotRouter = Router();
 
-const identitySchema = z.object({
-  macAddress: z.string().min(1)
-});
+// 1. POST /identity
+iotRouter.post('/identity', async (req: Request, res: Response) => {
+  const deviceSecret = req.header('x-device-secret');
+  const iotDeviceSecret = process.env.IOT_DEVICE_SECRET;
 
-iotRouter.post('/identity', zValidator('json', identitySchema, (result, c) => {
-  if (!result.success) {
-    return c.json({ error: 'Validation failed' }, 400);
-  }
-}), async (c) => {
-  const db = c.get('db');
-  
-  const deviceSecret = c.req.header('x-device-secret');
-  if (!deviceSecret || deviceSecret !== c.env.IOT_DEVICE_SECRET) {
-    return c.json({ error: 'Unauthorized device' }, 401);
+  if (!deviceSecret || deviceSecret !== iotDeviceSecret) {
+    return res.status(401).json({ error: 'Unauthorized device' });
   }
 
-  const { macAddress } = c.req.valid('json');
-
-  const stations = await db.select().from(station).where(eq(station.macAddress, macAddress));
-  
-  if (stations.length === 0) {
-    // Log unregistered MAC address
-    // Delete older than 24 hours
-    await db.delete(unregisteredDevices).where(sql`last_seen_at < NOW() - INTERVAL 1 DAY`);
-    // Insert or update (on duplicate key) using raw sql or just insert ignore, but we can do an insert with on duplicate key update if drizzle supports it.
-    // Drizzle MySQL onDuplicateKeyUpdate:
-    await db.insert(unregisteredDevices).values({
-      macAddress: macAddress,
-      lastSeenAt: new Date()
-    }).onDuplicateKeyUpdate({
-      set: { lastSeenAt: new Date() }
-    });
-
-    return c.json({ error: 'Device not registered. Please contact administrator.' }, 404);
+  const { mac_address } = req.body;
+  if (!mac_address) {
+    return res.status(400).json({ error: 'mac_address is required' });
   }
 
-  return c.json({ uuid: stations[0].uuid }, 200);
-});
-
-const parseNum = z.preprocess((val) => {
-  if (val === "" || val === "NULL" || val === null || val === undefined) return undefined;
-  const parsed = Number(val);
-  return isNaN(parsed) ? undefined : parsed;
-}, z.number().optional());
-
-const aqmsPayloadSchema = z.object({
-  created_at: z.string().optional(),
-  pm25: z.preprocess((val) => {
-    if (val === "" || val === "NULL" || val === null || val === undefined) return undefined;
-    const parsed = Number(val);
-    return isNaN(parsed) ? undefined : parsed;
-  }, z.number().min(0).max(1000).optional()),
-  no2: parseNum,
-  co2: parseNum,
-  temperature: parseNum,
-  humidity: parseNum,
-  ws: parseNum,
-  wd: parseNum,
-});
-
-const socPayloadSchema = z.object({
-  created_at: z.string().optional(),
-  ph: z.preprocess((val) => {
-    if (val === "" || val === "NULL" || val === null || val === undefined) return undefined;
-    const parsed = Number(val);
-    return isNaN(parsed) ? undefined : parsed;
-  }, z.number().min(0).max(14).optional()),
-  no2: parseNum,
-  ec: parseNum,
-  temp: parseNum,
-  hum: parseNum,
-  n: parseNum,
-  p: parseNum,
-  k: parseNum,
-});
-
-iotRouter.post('/ingest', async (c) => {
-  const db = c.get('db');
-  // UUID is passed as API Key
-  const apiKey = c.req.header('x-api-key');
-
-  if (!apiKey) {
-    return c.json({ error: 'API Key is required' }, 401);
-  }
-
-  // Find station by UUID
-  const stations = await db.select().from(station).where(eq(station.uuid, apiKey));
-  if (stations.length === 0) {
-    return c.json({ error: 'Invalid API Key' }, 401);
-  }
-  
-  const currentStation = stations[0];
-  
-  let payload: any;
   try {
-    payload = await c.req.json();
-  } catch (e) {
-    return c.json({ error: 'Invalid JSON payload' }, 400);
-  }
+    const devices = await query<any[]>(
+      'SELECT uuid, type, project_name FROM device WHERE mac_address = ? AND is_deleted = FALSE',
+      [mac_address]
+    );
 
-  // 1. Insert into Cold Path (raw_sensor_log)
-  await db.insert(rawSensorLog).values({
-    stationUuid: currentStation.uuid,
-    firmwareVersion: currentStation.currentVersion || 'unknown',
-    dataPayload: payload,
-    receivedAt: new Date()
-  });
-
-  // 2. Validate and Insert for Hot Path based on type
-  if (currentStation.type === 'aqms') {
-    const parseResult = aqmsPayloadSchema.safeParse(payload);
-    
-    if (parseResult.success) {
-      const validData = parseResult.data;
-      if (validData.pm25 !== undefined) {
-        try {
-          const measuredAt = validData.created_at ? new Date(validData.created_at) : new Date();
-          await db.insert(dataAqms).values({
-            stationUuid: currentStation.uuid,
-            pm25: validData.pm25,
-            no2: validData.no2,
-            co: validData.co2,
-            temp: validData.temperature,
-            hum: validData.humidity,
-            ws: validData.ws,
-            wd: validData.wd,
-            measuredAt: measuredAt
-          });
-        } catch (dbErr: any) {
-          console.error("DB Insert Error AQMS:", dbErr);
-          return c.json({ error: 'Database insert failed for AQMS', details: dbErr.message }, 500);
-        }
-      } else {
-        return c.json({ error: 'pm25 is missing or invalid', parsed: validData }, 400);
-      }
-    } else {
-      return c.json({ error: 'AQMS payload validation failed', details: parseResult.error }, 400);
+    if (devices && devices.length > 0) {
+      return res.status(200).json({
+        uuid: devices[0].uuid,
+        type: devices[0].type,
+        project_name: devices[0].project_name,
+      });
     }
-  } else if (currentStation.type === 'soc') {
-    const parseResult = socPayloadSchema.safeParse(payload);
-    
-    if (parseResult.success) {
-      const validData = parseResult.data;
-      if (validData.ph !== undefined || validData.n !== undefined) {
-        try {
-          const measuredAt = validData.created_at ? new Date(validData.created_at) : new Date();
-          await db.insert(dataSoc).values({
-            stationUuid: currentStation.uuid,
-            ph: validData.ph,
-            no2: validData.no2,
-            ec: validData.ec,
-            temp: validData.temp,
-            hum: validData.hum,
-            n: validData.n,
-            p: validData.p,
-            k: validData.k,
-            measuredAt: measuredAt
-          });
-        } catch (dbErr: any) {
-          console.error("DB Insert Error SOC:", dbErr);
-          return c.json({ error: 'Database insert failed for SOC', details: dbErr.message }, 500);
-        }
-      } else {
-        return c.json({ error: 'ph or n is missing or invalid', parsed: validData }, 400);
-      }
-    } else {
-      return c.json({ error: 'SOC payload validation failed', details: parseResult.error }, 400);
-    }
-  } else {
-    return c.json({ error: 'Unknown or missing station type', type: currentStation.type }, 400);
-  }
 
-  return c.json({ message: 'Data ingested successfully' }, 200);
+    // Upsert to unregistered_device
+    await query(
+      `INSERT INTO unregistered_device (mac_address, last_seen_at) VALUES (?, NOW()) 
+       ON DUPLICATE KEY UPDATE last_seen_at = NOW()`,
+      [mac_address]
+    );
+
+    return res.status(404).json({ error: 'Device not registered' });
+  } catch (err: any) {
+    console.error('Error in /identity:', err);
+    return res.status(500).json({ error: 'Internal database error', details: err.message });
+  }
 });
 
-iotRouter.get('/ota', async (c) => {
-  const db = c.get('db');
-  const apiKey = c.req.header('x-api-key');
-  const currentVersion = c.req.query('current_version');
+// 2. POST /ingest
+iotRouter.post('/ingest', async (req: Request, res: Response) => {
+  const apiKey = req.header('x-api-key');
 
   if (!apiKey) {
-    return c.json({ error: 'API Key is required' }, 401);
+    return res.status(401).json({ error: 'API Key (x-api-key header) is required' });
   }
 
-  // Find station by UUID
-  const stations = await db.select().from(station).where(eq(station.uuid, apiKey));
-  if (stations.length === 0) {
-    return c.json({ error: 'Invalid API Key' }, 401);
-  }
-  
-  const currentStation = stations[0];
+  try {
+    const devices = await query<any[]>(
+      'SELECT id, uuid, type, current_version FROM device WHERE uuid = ? AND is_deleted = FALSE',
+      [apiKey]
+    );
 
-  // Update current station firmware version if provided
-  if (currentVersion && currentVersion !== currentStation.currentVersion) {
-    await db.update(station)
-      .set({ currentVersion: currentVersion })
-      .where(eq(station.uuid, currentStation.uuid));
-  }
-
-  // Get latest firmware release for this project
-  const latestVersions = await db.select()
-    .from(firmwareRelease)
-    .where(eq(firmwareRelease.projectName, currentStation.projectName))
-    .orderBy(desc(firmwareRelease.createdAt))
-    .limit(1);
-
-  if (latestVersions.length > 0) {
-    const latest = latestVersions[0];
-    if (latest.version !== currentVersion) {
-      return c.json({
-        update_available: true,
-        latest_version: latest.version,
-        github_url: latest.binFileUrl
-      }, 200);
+    if (!devices || devices.length === 0) {
+      return res.status(401).json({ error: 'Invalid API Key' });
     }
+
+    const currentDevice = devices[0];
+    const payload = req.body;
+
+    if (!payload || typeof payload !== 'object') {
+      return res.status(400).json({ error: 'Invalid JSON payload' });
+    }
+
+    // Cold Path: insert into raw_data_log
+    await query(
+      'INSERT INTO raw_data_log (device_id, payload, received_at) VALUES (?, ?, NOW())',
+      [currentDevice.id, JSON.stringify(payload)]
+    );
+
+    // Update last_seen_at
+    await query('UPDATE device SET last_seen_at = NOW() WHERE id = ?', [currentDevice.id]);
+
+    const measuredAt = payload.created_at ? new Date(payload.created_at) : new Date();
+
+    // Hot Path based on device type
+    if (currentDevice.type === 'aqms') {
+      await query(
+        `INSERT INTO aqms_reading 
+          (device_id, pm25, no2, co, temperature, humidity, ws, wd, measured_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          currentDevice.id,
+          payload.pm25 ?? null,
+          payload.no2 ?? null,
+          payload.co ?? payload.co2 ?? null,
+          payload.temperature ?? payload.temp ?? null,
+          payload.humidity ?? payload.hum ?? null,
+          payload.ws ?? null,
+          payload.wd ?? null,
+          measuredAt
+        ]
+      );
+    } else if (currentDevice.type === 'soc') {
+      await query(
+        `INSERT INTO soc_reading 
+          (device_id, ph, no2, ec, temperature, humidity, n, p, k, measured_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          currentDevice.id,
+          payload.ph ?? null,
+          payload.no2 ?? null,
+          payload.ec ?? null,
+          payload.temperature ?? payload.temp ?? null,
+          payload.humidity ?? payload.hum ?? null,
+          payload.n ?? null,
+          payload.p ?? null,
+          payload.k ?? null,
+          measuredAt
+        ]
+      );
+    }
+
+    return res.status(200).json({ message: 'Data ingested successfully' });
+  } catch (err: any) {
+    console.error('Error in /ingest:', err);
+    return res.status(500).json({ error: 'Database insert failed', details: err.message });
+  }
+});
+
+// 3. GET /ota
+iotRouter.get('/ota', async (req: Request, res: Response) => {
+  const apiKey = req.header('x-api-key');
+  const currentVersion = req.query.current_version as string | undefined;
+
+  if (!apiKey) {
+    return res.status(401).json({ error: 'API Key (x-api-key header) is required' });
   }
 
-  return c.json({
-    update_available: false,
-    latest_version: currentVersion || 'unknown'
-  }, 200);
+  try {
+    const devices = await query<any[]>(
+      'SELECT id, uuid, project_name, current_version FROM device WHERE uuid = ? AND is_deleted = FALSE',
+      [apiKey]
+    );
+
+    if (!devices || devices.length === 0) {
+      return res.status(401).json({ error: 'Invalid API Key' });
+    }
+
+    const currentDevice = devices[0];
+
+    if (currentVersion && currentVersion !== currentDevice.current_version) {
+      await query('UPDATE device SET current_version = ? WHERE id = ?', [currentVersion, currentDevice.id]);
+    }
+
+    const releases = await query<any[]>(
+      'SELECT version, bin_file_url FROM firmware_release WHERE project_name = ? ORDER BY created_at DESC LIMIT 1',
+      [currentDevice.project_name]
+    );
+
+    if (releases && releases.length > 0) {
+      const latest = releases[0];
+      if (latest.version !== currentVersion) {
+        return res.status(200).json({
+          update_available: true,
+          latest_version: latest.version,
+          bin_file_url: latest.bin_file_url
+        });
+      }
+    }
+
+    return res.status(200).json({
+      update_available: false,
+      latest_version: currentVersion || currentDevice.current_version || '1.0.0'
+    });
+  } catch (err: any) {
+    console.error('Error in /ota:', err);
+    return res.status(500).json({ error: 'Failed to check OTA update', details: err.message });
+  }
 });

@@ -1,86 +1,87 @@
-import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
-import { users } from '../db/schema';
-import { sign } from 'hono/jwt';
-import { setCookie } from 'hono/cookie';
-import * as bcrypt from 'bcryptjs';
-import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
+import { Router, Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { query } from '../db/pool.js';
+import { authenticateJWT, requireAdmin, AuthRequest } from '../middleware/auth.js';
 
-export const authRouter = new Hono<{ Variables: { db: any }, Bindings: { JWT_SECRET: string } }>();
+export const authRouter = Router();
 
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1)
-});
+// POST /register
+authRouter.post('/register', async (req: Request, res: Response) => {
+  const { name, email, password, role = 'viewer' } = req.body;
 
-authRouter.post('/login', zValidator('json', loginSchema, (result, c) => {
-  if (!result.success) {
-    return c.json({ error: 'Validation failed', details: result.error.format() }, 400);
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required' });
   }
-}), async (c) => {
-  const db = c.get('db');
-  
-  const { email, password } = c.req.valid('json');
-
-  const result = await db.select().from(users).where(eq(users.email, email));
-  if (result.length === 0) {
-    return c.json({ error: 'Invalid credentials' }, 401);
+  if (!['admin', 'viewer'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role provided' });
   }
 
-  const user = result[0];
-
-  const isValid = await bcrypt.compare(password, user.passwordHash);
-
-  if (!isValid) {
-    return c.json({ error: 'Invalid credentials' }, 401);
-  }
-
-  const payload = {
-    id: user.id,
-    role: user.role,
-    exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 // 24 hours
-  };
-
-  const secret = c.env?.JWT_SECRET;
-  if (!secret) {
-    return c.json({ error: 'Server configuration error: missing JWT_SECRET' }, 500);
-  }
-  const token = await sign(payload, secret, 'HS256');
-
-  // Set the HttpOnly cookie
-  setCookie(c, 'token', token, {
-    httpOnly: true,
-    secure: true, // Requires HTTPS (handled by Cloudflare)
-    sameSite: 'Strict',
-    path: '/',
-    maxAge: 60 * 60 * 24, // 1 day
-  });
-
-  return c.json({
-    user: {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-      role: user.role
+  try {
+    const existingUsers = await query<any[]>('SELECT id FROM user WHERE email = ?', [email]);
+    if (existingUsers && existingUsers.length > 0) {
+      return res.status(400).json({ error: 'Email already registered' });
     }
-  }, 200);
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const result = await query<any>(
+      'INSERT INTO user (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+      [name, email, hashedPassword, role]
+    );
+
+    return res.status(201).json({
+      message: 'User registered successfully',
+      user: {
+        id: result.insertId,
+        name,
+        email,
+        role
+      }
+    });
+  } catch (err: any) {
+    console.error('Registration failed:', err);
+    return res.status(500).json({ error: 'Registration failed', details: err.message });
+  }
 });
 
-// Endpoint to check auth status from HttpOnly Cookie
-authRouter.get('/me', async (c) => {
-  // We'll rely on the global JWT middleware to validate the cookie first
-  return c.json({ message: 'Use /api/users/me for this' }, 200);
+// POST /login
+authRouter.post('/login', async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  try {
+    const users = await query<any[]>(
+      'SELECT id, name, email, password_hash, role FROM user WHERE email = ?',
+      [email]
+    );
+    if (!users || users.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const user = users[0];
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const secret = process.env.JWT_SECRET || 'secret';
+    const payload = { id: user.id, name: user.name, email: user.email, role: user.role };
+    const token = jwt.sign(payload, secret, { expiresIn: '24h' });
+
+    return res.status(200).json({ token, user: payload });
+  } catch (err: any) {
+    console.error('Login failed:', err);
+    return res.status(500).json({ error: 'Login failed', details: err.message });
+  }
 });
 
-// Endpoint to logout
-authRouter.post('/logout', (c) => {
-  setCookie(c, 'token', '', {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'Strict',
-    path: '/',
-    maxAge: 0, // Immediately expires the cookie
-  });
-  return c.json({ message: 'Logged out successfully' }, 200);
+// GET /me
+authRouter.get('/me', authenticateJWT, (req: AuthRequest, res: Response) => {
+  if (!req.user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  return res.status(200).json({ user: req.user });
 });
