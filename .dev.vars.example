@@ -1,3 +1,0 @@
-DATABASE_URL="mysql://username:password@hostinger-db-host:3306/birulangit"
-JWT_SECRET="secret-jwt-yang-aman"
-IOT_DEVICE_SECRET="your-iot-device-secret-here"

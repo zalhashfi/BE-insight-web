@@ -8,11 +8,12 @@ web dashboard, handles user auth, and provides over-the-air (OTA) firmware updat
 
 ## Tech Stack
 
-- **Framework:** Express.js (Node.js)
+- **Framework:** Express.js 4 (Node.js, TypeScript, ESM)
 - **Runtime & Deployment:** Hostinger Shared/Cloud Hosting (Node.js via PM2/Passenger)
 - **Database:** MySQL on Hostinger, accessed with **Pure SQL** via `mysql2/promise`
   (connection pool + parameterized queries — no ORM)
-- **Auth:** JWT (Bearer token passed in `Authorization` header), `bcryptjs`, `Zod`-free manual validation
+- **Auth:** JWT (Bearer token passed in `Authorization` header), `bcryptjs`
+- **Testing:** Vitest + Supertest
 
 ## Environment Variables
 
@@ -28,11 +29,10 @@ Copy `.env.example` to `.env` and fill in values. All vars are read in
 | `DB_PASSWORD`       | no       | `''` (empty)       | MySQL password. **Set a strong value in production.**                        |
 | `DB_NAME`           | no       | `insight_web_db`   | MySQL database name.                                                        |
 | `DB_PORT`           | no       | `3306`             | MySQL port.                                                                |
-| `JWT_SECRET`        | yes*     | `secret` (fallback)| Secret used to sign/verify JWTs. **Must be set to a long random value in production.** If unset, code falls back to `'secret'` (insecure). |
-| `IOT_DEVICE_SECRET` | yes*     | — (none)           | Shared secret that IoT devices send in the `x-device-secret` header on `POST /api/iot/identity`. If unset, no device can authenticate. |
+| `JWT_SECRET`        | yes*     | `secret` (fallback)| Secret used to sign/verify JWTs. **Must be set to a long random value in production.** |
+| `IOT_DEVICE_SECRET` | yes*     | — (none)           | Shared secret that IoT devices send in the `x-device-secret` header on `POST /api/iot/identity`. |
 
-\* `JWT_SECRET` and `IOT_DEVICE_SECRET` have insecure fallbacks/behavior if missing;
-always set both in any real deployment.
+\* `JWT_SECRET` and `IOT_DEVICE_SECRET` have fallbacks/required defaults; always set both in production.
 
 ## Database Setup
 
@@ -69,12 +69,9 @@ npm start
 
 There are **three** trust boundaries, each with its own credential:
 
-1. **User JWT** — dashboard users. Obtain via `POST /api/auth/login`, then send
-   `Authorization: Bearer <JWT>` on protected routes.
-2. **Device API key** — each device's `uuid` is sent in the `x-api-key` header for
-   `POST /api/iot/ingest` and `GET /api/iot/ota`.
-3. **Device shared secret** — sent in the `x-device-secret` header on
-   `POST /api/iot/identity` (a single shared key from `IOT_DEVICE_SECRET`).
+1. **User JWT** — dashboard users. Obtain via `POST /api/auth/login`, then send `Authorization: Bearer <token>` on protected routes.
+2. **Device API key** — each device's `uuid` is sent in the `x-api-key` header for `POST /api/iot/ingest` and `GET /api/iot/ota`.
+3. **Device shared secret** — sent in the `x-device-secret` header on `POST /api/iot/identity` (a single shared key from `IOT_DEVICE_SECRET`).
 
 Admin-only routes additionally require the JWT user to have `role = 'admin'`.
 
@@ -90,57 +87,49 @@ Base path for versioned routes is `/api`. Full health check is at root.
 ### IoT device endpoints — mounted at `/api/iot`
 | Method | Path                  | Auth header        | Purpose                                                                 |
 |--------|-----------------------|--------------------|-------------------------------------------------------------------------|
-| POST   | `/api/iot/identity`  | `x-device-secret`  | Device boots: send `mac_address`, get back `{ uuid, type, project_name }`. 401 if secret wrong; 404 if MAC not yet registered. |
-| POST   | `/api/iot/ingest`    | `x-api-key` (=uuid) | Receive sensor JSON. Stored raw in `raw_data_log` and parsed into `aqms_reading`/`soc_reading` by device `type`. |
-| GET    | `/api/iot/ota`       | `x-api-key` (=uuid) | OTA check. Query `?current_version=`. Returns `update_available`, `latest_version`, `bin_file_url` if a newer firmware release exists for the device's project. |
+| POST   | `/api/iot/identity`  | `x-device-secret`  | Device boots: send `mac_address`, get back `{ uuid, type, project_name }`. |
+| POST   | `/api/iot/ingest`    | `x-api-key` (=uuid) | Receive sensor JSON. Stored raw in `raw_data_log` and parsed into `aqms_reading`/`soc_reading`. |
+| GET    | `/api/iot/ota`       | `x-api-key` (=uuid) | OTA check. Returns `update_available`, `latest_version`, `bin_file_url` if newer firmware exists. |
 
 ### Auth & user management — mounted at `/api/auth`
 | Method | Path               | Auth        | Purpose                                                                 |
 |--------|--------------------|-------------|-------------------------------------------------------------------------|
-| POST   | `/api/auth/register` | none      | Register a user. Body: `name, email, password, role` (`role` defaults to `viewer`; only `admin`/`viewer` allowed). |
+| POST   | `/api/auth/register` | none      | Register a user. Body: `name, email, password, role`.                   |
 | POST   | `/api/auth/login`  | none        | Authenticate. Body: `email, password`. Returns `{ token, user }`.        |
-| GET    | `/api/auth/me`     | JWT         | Return the currently authenticated user from the token.                  |
+| GET    | `/api/auth/me`     | JWT         | Return currently authenticated user from token.                         |
 
 ### Sensor data query — mounted at `/api/data` (JWT required)
 | Method | Path                                          | Auth | Purpose                                                                 |
 |--------|-----------------------------------------------|------|-------------------------------------------------------------------------|
-| GET    | `/api/data/devices/:uuid/data/:sensorType`    | JWT  | Query readings for a device. `:sensorType` ∈ `aqms` \| `soc`. Query params: `start_time`, `end_time`, `limit` (max 1000, default 100). Returns `{ device_uuid, sensor_type, total_records, data }`. |
+| GET    | `/api/data/devices/:uuid/data/:sensorType`    | JWT  | Query readings for a device (`aqms` \| `soc`). Params: `start_time`, `end_time`, `limit`. |
 
 ### Device management (dashboard) — mounted at `/api/devices` (admin required)
 | Method | Path                         | Auth        | Purpose                                                                 |
 |--------|------------------------------|-------------|-------------------------------------------------------------------------|
-| GET    | `/api/devices`              | admin       | List all active devices. Optional query: `?type=`, `?project_name=`.    |
+| GET    | `/api/devices`              | admin       | List all active devices.                                                |
 | GET    | `/api/devices/unregistered` | admin       | List devices seen via `/identity` but not yet registered.              |
-| GET    | `/api/devices/:uuid`        | admin       | Device detail + `total_logs` and `total_readings` counts.              |
-| POST   | `/api/devices`              | admin       | Register a device. Body: `uuid, mac_address, name, type` (`aqms`\|`soc`), `project_name`. Also clears the unregistered entry. |
+| GET    | `/api/devices/:uuid`        | admin       | Device detail + reading counts.                                         |
+| POST   | `/api/devices`              | admin       | Register a device. Body: `uuid, mac_address, name, type, project_name`. |
 | PUT    | `/api/devices/:uuid`        | admin       | Update `name`, `type`, and/or `project_name`.                          |
-| DELETE | `/api/devices/:uuid`        | admin       | Soft delete: sets `is_deleted = TRUE` (queries filter these out).      |
+| DELETE | `/api/devices/:uuid`        | admin       | Soft delete device.                                                     |
 
 ### Firmware management (OTA) — mounted at `/api/firmware` (admin required)
 | Method | Path                              | Auth   | Purpose                                                                 |
 |--------|-----------------------------------|--------|-------------------------------------------------------------------------|
-| GET    | `/api/firmware`                  | admin  | List all firmware releases (newest first).                              |
-| GET    | `/api/firmware/:projectName/latest` | admin | Latest release for a project; 404 if none.                             |
-| POST   | `/api/firmware`                  | admin  | Create a release. Body: `project_name, version, bin_file_url, changelog?`. 409 if `(project_name, version)` already exists. |
+| GET    | `/api/firmware`                  | admin  | List all firmware releases.                                             |
+| GET    | `/api/firmware/:projectName/latest` | admin | Latest release for a project.                                          |
+| POST   | `/api/firmware`                  | admin  | Create a release (`project_name, version, bin_file_url, changelog?`).   |
 
 ## Project Layout
 
 - `src/index.ts` — Express app entry point, route mounting, global middleware.
 - `src/db/pool.ts` — mysql2 connection pool + `query()` helper.
-- `src/db/schema.sql` — SQL schema (tables above).
+- `src/db/schema.sql` — SQL schema.
 - `src/db/init.ts` — one-shot schema initializer (`npm run db:init`).
 - `src/middleware/auth.ts` — `authenticateJWT` and `requireAdmin`.
-- `src/routes/` — route handlers:
-  - `auth.ts` — register / login / me
-  - `iot.ts` — device identity, ingest, OTA
-  - `data.ts` — sensor data query
-  - `devices.ts` — device CRUD + unregistered list
-  - `firmware.ts` — firmware release CRUD
+- `src/routes/` — route handlers (`auth.ts`, `iot.ts`, `data.ts`, `devices.ts`, `firmware.ts`).
 
 ## Notes
 
-- **Dual-path storage:** every ingest writes the raw JSON to `raw_data_log`
-  (audit/debug) and the parsed values to the type-specific reading table.
+- **Dual-path storage:** every ingest writes raw JSON to `raw_data_log` (audit/debug) and parsed values to type-specific reading table.
 - **Manual UUID:** device UUID is assigned at registration, not server-generated.
-- See `HOSTINGER_DEPLOYMENT.md` for the full Hostinger deploy walkthrough and the
-  cron job that purges `unregistered_device` entries older than 24h.
