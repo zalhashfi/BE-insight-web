@@ -70,7 +70,7 @@ npm start
 There are **three** trust boundaries, each with its own credential:
 
 1. **User JWT** — dashboard users. Obtain via `POST /api/auth/login`, then send
-   `Authorization: Bearer <token>` on protected routes.
+   `Authorization: Bearer <JWT>` on protected routes.
 2. **Device API key** — each device's `uuid` is sent in the `x-api-key` header for
    `POST /api/iot/ingest` and `GET /api/iot/ota`.
 3. **Device shared secret** — sent in the `x-device-secret` header on
