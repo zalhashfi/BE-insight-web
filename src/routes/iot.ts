@@ -91,7 +91,7 @@ iotRouter.post('/ingest', async (req: Request, res: Response) => {
           currentDevice.id,
           payload.pm25 ?? null,
           payload.no2 ?? null,
-          payload.co ?? payload.co2 ?? null,
+          payload.co ?? null,
           payload.temperature ?? payload.temp ?? null,
           payload.humidity ?? payload.hum ?? null,
           payload.ws ?? null,

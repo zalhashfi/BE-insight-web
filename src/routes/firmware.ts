@@ -14,27 +14,6 @@ firmwareRouter.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// 3. GET /:projectName/latest - Get latest release for specific project
-firmwareRouter.get('/:projectName/latest', async (req: Request, res: Response) => {
-  const projectName = req.params.projectName;
-
-  try {
-    const releases = await query<any[]>(
-      'SELECT * FROM firmware_release WHERE project_name = ? ORDER BY created_at DESC LIMIT 1',
-      [projectName]
-    );
-
-    if (!releases || releases.length === 0) {
-      return res.status(404).json({ error: 'No firmware release found for this project' });
-    }
-
-    return res.status(200).json({ data: releases[0] });
-  } catch (err: any) {
-    console.error('Failed to fetch latest firmware release:', err);
-    return res.status(500).json({ error: 'Failed to fetch latest firmware release', details: err.message });
-  }
-});
-
 // 2. POST / - Create release (project_name, version, bin_file_url, changelog)
 firmwareRouter.post('/', async (req: Request, res: Response) => {
   try {
