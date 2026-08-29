@@ -117,7 +117,6 @@ Base path for versioned routes is `/api`. Full health check is at root.
 | Method | Path                              | Auth   | Purpose                                                                 |
 |--------|-----------------------------------|--------|-------------------------------------------------------------------------|
 | GET    | `/api/firmware`                  | admin  | List all firmware releases.                                             |
-| GET    | `/api/firmware/:projectName/latest` | admin | Latest release for a project.                                          |
 | POST   | `/api/firmware`                  | admin  | Create a release (`project_name, version, bin_file_url, changelog?`).   |
 
 ## Project Layout
