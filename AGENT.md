@@ -30,7 +30,7 @@ src/
     auth.ts           # /api/auth/* (register, login, me) — dashboard user auth
     data.ts           # GET /api/devices/:uuid/data/:sensorType
     devices.ts        # /api/devices/* (CRUD, unregistered list)
-    firmware.ts       # /api/firmware/* (list, create, latest)
+    firmware.ts       # /api/firmware/* (list, create)
 ```
 
 ## 4. Common Commands
