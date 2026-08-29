@@ -147,8 +147,10 @@ iotRouter.get('/ota', async (req: Request, res: Response) => {
 
     const currentDevice = devices[0];
 
+    // Update device current_version if provided and different
     if (currentVersion && currentVersion !== currentDevice.current_version) {
       await query('UPDATE device SET current_version = ? WHERE id = ?', [currentVersion, currentDevice.id]);
+      currentDevice.current_version = currentVersion;
     }
 
     const releases = await query<any[]>(
@@ -156,9 +158,11 @@ iotRouter.get('/ota', async (req: Request, res: Response) => {
       [currentDevice.project_name]
     );
 
+    const storedCurrentVersion = currentDevice.current_version;
+
     if (releases && releases.length > 0) {
       const latest = releases[0];
-      if (latest.version !== currentVersion) {
+      if (latest.version !== storedCurrentVersion) {
         return res.status(200).json({
           update_available: true,
           latest_version: latest.version,
@@ -169,7 +173,7 @@ iotRouter.get('/ota', async (req: Request, res: Response) => {
 
     return res.status(200).json({
       update_available: false,
-      latest_version: currentVersion || currentDevice.current_version || '1.0.0'
+      latest_version: storedCurrentVersion || '1.0.0'
     });
   } catch (err: any) {
     console.error('Error in /ota:', err);
