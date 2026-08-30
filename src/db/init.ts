@@ -1,10 +1,32 @@
 import fs from 'fs';
 import path from 'path';
+import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'url';
 import { pool } from './pool.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+async function seedAdmin() {
+  // ponytail: initial admin is seeded only if SEED_ADMIN_EMAIL/PASSWORD are set.
+  // Add when: admin self-service signup is wanted — then gate /register with authenticateJWT + requireAdmin instead.
+  const email = process.env.SEED_ADMIN_EMAIL;
+  const password = process.env.SEED_ADMIN_PASSWORD;
+  if (!email || !password) return;
+
+  const existing = await pool.execute<any[]>('SELECT id FROM user WHERE email = ?', [email]);
+  if (existing[0].length > 0) {
+    console.log('ℹ️  Seed admin already exists, skipping.');
+    return;
+  }
+
+  const hashed = await bcrypt.hash(password, 10);
+  await pool.execute(
+    'INSERT INTO user (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+    [process.env.SEED_ADMIN_NAME || 'Administrator', email, hashed, 'admin']
+  );
+  console.log('✅ Seed admin created:', email);
+}
 
 async function initDatabase() {
   console.log('🚀 Running database migrations & schema initialization...');
@@ -27,6 +49,8 @@ async function initDatabase() {
     } finally {
       connection.release();
     }
+
+    await seedAdmin();
   } catch (error) {
     console.error('❌ Error initializing database:', error);
     process.exit(1);

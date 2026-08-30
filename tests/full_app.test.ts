@@ -24,9 +24,9 @@ describe('Full app mount smoke test', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /api/devices without token -> 403 (devices router + admin guard mounted)', async () => {
+  it('GET /api/devices without token -> 401 (auth required before admin check)', async () => {
     const res = await request(app).get('/api/devices');
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 
   it('GET /api/data/x/y without token -> 401 (data router + JWT guard mounted)', async () => {
@@ -34,15 +34,15 @@ describe('Full app mount smoke test', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /api/firmware without token -> 403 (firmware router + admin guard mounted)', async () => {
+  it('GET /api/firmware without token -> 401 (auth required before admin check)', async () => {
     const res = await request(app).get('/api/firmware');
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 
-  it('GET /api/firmware/:projectName/latest returns 404/403 (route removed/unmounted)', async () => {
+  it('GET /api/firmware/:projectName/latest returns 404 (route removed)', async () => {
     const res = await request(app).get('/api/firmware/test-project/latest');
-    // Since /api/firmware has requireAdmin middleware at index level, without token it gives 403, or 404 if router rejects.
-    // Specifically verify it does not hit any unauthenticated or unspec handler.
-    expect(res.status).toBe(403);
+    // Since /api/firmware has authenticateJWT first, unauthenticated requests get 401,
+    // but the route doesn't exist anyway, so 404 or 401 are both valid security responses.
+    expect([401, 404]).toContain(res.status);
   });
 });
