@@ -29,6 +29,11 @@ describe('Full app mount smoke test', () => {
     expect(res.status).toBe(401);
   });
 
+  it('GET /api/users without token -> 401 (auth required before admin check)', async () => {
+    const res = await request(app).get('/api/users');
+    expect(res.status).toBe(401);
+  });
+
   it('GET /api/data/x/y without token -> 401 (data router + JWT guard mounted)', async () => {
     const res = await request(app).get('/api/data/abc/aqms');
     expect(res.status).toBe(401);

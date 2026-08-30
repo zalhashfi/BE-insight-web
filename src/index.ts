@@ -6,6 +6,7 @@ import { iotRouter } from './routes/iot.js';
 import { dataRouter } from './routes/data.js';
 import { devicesRouter } from './routes/devices.js';
 import { firmwareRouter } from './routes/firmware.js';
+import { usersRouter } from './routes/users.js';
 import { authenticateJWT, requireAdmin } from './middleware/auth.js';
 
 dotenv.config();
@@ -28,6 +29,9 @@ app.use('/api/data', authenticateJWT, dataRouter);
 
 // Device Management Dashboard (JWT auth + admin protected)
 app.use('/api/devices', authenticateJWT, requireAdmin, devicesRouter);
+
+// User Management Dashboard (JWT auth + admin protected)
+app.use('/api/users', authenticateJWT, requireAdmin, usersRouter);
 
 // Firmware Management (JWT auth + admin protected)
 app.use('/api/firmware', authenticateJWT, requireAdmin, firmwareRouter);
