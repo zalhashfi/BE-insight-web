@@ -26,11 +26,11 @@ app.use('/api/auth', authRouter);
 // Sensor data query — JWT protected
 app.use('/api/data', authenticateJWT, dataRouter);
 
-// Device Management Dashboard (admin-protected)
-app.use('/api/devices', requireAdmin, devicesRouter);
+// Device Management Dashboard (JWT auth + admin protected)
+app.use('/api/devices', authenticateJWT, requireAdmin, devicesRouter);
 
-// Firmware Management (admin-protected)
-app.use('/api/firmware', requireAdmin, firmwareRouter);
+// Firmware Management (JWT auth + admin protected)
+app.use('/api/firmware', authenticateJWT, requireAdmin, firmwareRouter);
 
 const PORT = Number(process.env.PORT) || 3000;
 if (process.env.NODE_ENV !== 'test') {
