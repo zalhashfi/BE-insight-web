@@ -2,19 +2,19 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db/pool.js';
-import { authenticateJWT, requireAdmin, AuthRequest } from '../middleware/auth.js';
+import { authenticateJWT, AuthRequest } from '../middleware/auth.js';
 
 export const authRouter = Router();
 
 // POST /register
+// ponytail: Allow open registration but always default to 'viewer' role.
+// Add when: if registration should be admin-gated, apply authenticateJWT + requireAdmin middleware.
 authRouter.post('/register', async (req: Request, res: Response) => {
-  const { name, email, password, role = 'viewer' } = req.body;
+  const { name, email, password } = req.body;
+  const role = 'viewer'; // Never accept role from unauthenticated request
 
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Name, email, and password are required' });
-  }
-  if (!['admin', 'viewer'].includes(role)) {
-    return res.status(400).json({ error: 'Invalid role provided' });
   }
 
   try {
