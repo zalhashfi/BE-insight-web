@@ -113,6 +113,11 @@ Base path for versioned routes is `/api`. Full health check is at root.
 | PUT    | `/api/devices/:uuid`        | admin       | Update `name`, `type`, and/or `project_name`.                          |
 | DELETE | `/api/devices/:uuid`        | admin       | Soft delete device.                                                     |
 
+### User management (dashboard) — mounted at `/api/users` (admin required)
+| Method | Path                         | Auth        | Purpose                                                                 |
+|--------|------------------------------|-------------|-------------------------------------------------------------------------|
+| GET    | `/api/users`                | admin       | List all registered users (id, name, email, role, created_at).          |
+
 ### Firmware management (OTA) — mounted at `/api/firmware` (admin required)
 | Method | Path                              | Auth   | Purpose                                                                 |
 |--------|-----------------------------------|--------|-------------------------------------------------------------------------|
@@ -126,9 +131,14 @@ Base path for versioned routes is `/api`. Full health check is at root.
 - `src/db/schema.sql` — SQL schema.
 - `src/db/init.ts` — one-shot schema initializer (`npm run db:init`).
 - `src/middleware/auth.ts` — `authenticateJWT` and `requireAdmin`.
-- `src/routes/` — route handlers (`auth.ts`, `iot.ts`, `data.ts`, `devices.ts`, `firmware.ts`).
+- `src/routes/` — route handlers (`auth.ts`, `iot.ts`, `data.ts`, `devices.ts`, `firmware.ts`, `users.ts`).
 
 ## Notes
 
 - **Dual-path storage:** every ingest writes raw JSON to `raw_data_log` (audit/debug) and parsed values to type-specific reading table.
 - **Manual UUID:** device UUID is assigned at registration, not server-generated.
+
+## Contributing
+
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming conventions, issue & PR templates, commit guidelines, and quality gates.
+
