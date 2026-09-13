@@ -28,8 +28,8 @@ export function createApp(deps: AppDeps) {
 
   const app = new Hono<{ Bindings: CfBindings }>();
 
-  app.use('*', cors());
-  app.use('*', logger());
+  app.use('/*', cors());
+  app.use('/*', logger());
 
   const authenticateJWT = createAuthenticateJWT(deps.jwtSecret);
 
