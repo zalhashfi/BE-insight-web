@@ -8,32 +8,29 @@ web dashboard, handles user auth, and provides over-the-air (OTA) firmware updat
 
 ## Tech Stack
 
-- **Framework:** Express.js 4 (Node.js, TypeScript, ESM)
-- **Runtime & Deployment:** Hostinger Shared/Cloud Hosting (Node.js via PM2/Passenger)
-- **Database:** MySQL on Hostinger, accessed with **Pure SQL** via `mysql2/promise`
-  (connection pool + parameterized queries — no ORM)
-- **Auth:** JWT (Bearer token passed in `Authorization` header), `bcryptjs`
-- **Testing:** Vitest + Supertest
+- **Framework:** Hono 4 (TypeScript, ESM) — satu codebase portabel Node + Cloudflare Workers
+- **Runtime & Deployment:** Cloudflare Worker (utama, via Hyperdrive ke MySQL) atau VPS/Docker (cadangan, `@hono/node-server` + pool mysql2)
+- **Database:** MySQL, diakses dengan **Pure SQL** (parameterized queries — no ORM); akses DB diabstraksi lewat adapter `DbQuery` (`src/db/adapter.ts`)
+- **Auth:** JWT via `jose` (Bearer token di header `Authorization`), `bcryptjs`
+- **Testing:** Vitest (`app.request()` milik Hono, tanpa supertest)
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in values. All vars are read in
-`src/index.ts`, `src/db/pool.ts`, and `src/routes/iot.ts` / `src/middleware/auth.ts`.
+Copy `.env.example` to `.env` and fill in values. Seluruh env dibaca terpusat di
+`src/config/env.ts` (`loadEnv`); entrypoint Node di `src/server-node.ts`, entrypoint
+Worker di `src/worker.ts` (binding `HYPERDRIVE` + secret via `wrangler secret put`).
 
 | Variable            | Required | Default            | Description                                                                 |
 |---------------------|----------|--------------------|-----------------------------------------------------------------------------|
-| `PORT`              | no       | `3000`             | TCP port the Express server listens on.                                      |
-| `NODE_ENV`          | no       | `development`      | App environment. Set to `production` on Hostinger. When `test`, the server does not auto-listen. |
-| `DB_HOST`           | no       | `localhost`        | MySQL host (Hostinger: `localhost` for same-server DB).                      |
-| `DB_USER`           | no       | `root`             | MySQL username.                                                             |
-| `DB_PASSWORD`       | no       | `''` (empty)       | MySQL password. **Set a strong value in production.**                        |
-| `DB_NAME`           | no       | `insight_web_db`   | MySQL database name.                                                        |
-| `DB_PORT`           | no       | `3306`             | MySQL port.                                                                |
-| `JWT_SECRET`        | yes*     | `secret` (fallback)| Secret used to sign/verify JWTs. **Must be set to a long random value in production.** |
-| `IOT_DEVICE_SECRET` | yes*     | — (none)           | Shared secret that IoT devices send in the `x-device-secret` header on `POST /api/iot/identity`. |
-
-\* `JWT_SECRET` and `IOT_DEVICE_SECRET` have fallbacks/required defaults; always set both in production.
-
+| `PORT`              | no       | `3000`             | TCP port server Node (`src/server-node.ts`) listens on.                     |
+| `NODE_ENV`          | no       | `development`      | App environment. Set `production` di VPS. Boot Node melempar error bila `JWT_SECRET`/`IOT_DEVICE_SECRET` kosong saat production. |
+| `DB_HOST`           | no*      | `localhost`        | MySQL host — **VPS/Node saja** (Worker memakai Hyperdrive).                 |
+| `DB_USER`           | no*      | `root`             | MySQL username — **VPS/Node saja**.                                         |
+| `DB_PASSWORD`       | no*      | `''` (empty)       | MySQL password — **VPS/Node saja**.                                         |
+| `DB_NAME`           | no*      | `insight_web_db`   | MySQL database name — **VPS/Node saja**.                                    |
+| `DB_PORT`           | no*      | `3306`             | MySQL port — **VPS/Node saja**.                                             |
+| `JWT_SECRET`        | yes      | `secret` (fallback)| Secret sign/verify JWT. Di Cloudflare via `wrangler secret put JWT_SECRET` (pakai nilai produksi lama agar token lama tetap valid). |
+| `IOT_DEVICE_SECRET` | yes      | — (none)           | Shared secret `x-device-secret` di `POST /api/v1/iot/identity`. Di Cloudflare via `wrangler secret put IOT_DEVICE_SECRET`. |
 ## Database Setup
 
 1. Create the MySQL database on Hostinger (or locally).
@@ -69,69 +66,79 @@ npm start
 
 There are **three** trust boundaries, each with its own credential:
 
-1. **User JWT** — dashboard users. Obtain via `POST /api/auth/login`, then send `Authorization: Bearer <token>` on protected routes.
-2. **Device API key** — each device's `uuid` is sent in the `x-api-key` header for `POST /api/iot/ingest` and `GET /api/iot/ota`.
-3. **Device shared secret** — sent in the `x-device-secret` header on `POST /api/iot/identity` (a single shared key from `IOT_DEVICE_SECRET`).
+1. **User JWT** — dashboard users. Obtain via `POST /api/v1/auth/login`, then send `Authorization: Bearer <token>` on protected routes.
+2. **Device API key** — each device's `uuid` is sent in the `x-api-key` header for `POST /api/v1/iot/ingest` and `GET /api/v1/iot/ota`.
+3. **Device shared secret** — sent in the `x-device-secret` header on `POST /api/v1/iot/identity` (a single shared key from `IOT_DEVICE_SECRET`).
 
 Admin-only routes additionally require the JWT user to have `role = 'admin'`.
 
 ## API Endpoints
-
-Base path for versioned routes is `/api`. Full health check is at root.
+Base path for versioned routes is `/api/v1`. Full health check is at root (`/health`, tak berversi).
 
 ### Health
 | Method | Path       | Auth | Purpose                                  |
 |--------|------------|------|------------------------------------------|
 | GET    | `/health`  | none | Liveness check. Returns `{ status: "ok", timestamp }`. |
 
-### IoT device endpoints — mounted at `/api/iot`
+### IoT device endpoints — mounted at `/api/v1/iot`
 | Method | Path                  | Auth header        | Purpose                                                                 |
 |--------|-----------------------|--------------------|-------------------------------------------------------------------------|
-| POST   | `/api/iot/identity`  | `x-device-secret`  | Device boots: send `mac_address`, get back `{ uuid, type, project_name }`. |
-| POST   | `/api/iot/ingest`    | `x-api-key` (=uuid) | Receive sensor JSON. Stored raw in `raw_data_log` and parsed into `aqms_reading`/`soc_reading`. |
-| GET    | `/api/iot/ota`       | `x-api-key` (=uuid) | OTA check. Returns `update_available`, `latest_version`, `bin_file_url` if newer firmware exists. |
+| POST   | `/api/v1/iot/identity`  | `x-device-secret`  | Device boots: send `mac_address`, get back `{ uuid, type, project_name }`. |
+| POST   | `/api/v1/iot/ingest`    | `x-api-key` (=uuid) | Receive sensor JSON. Stored raw in `raw_data_log` and parsed into `aqms_reading`/`soc_reading`. |
+| GET    | `/api/v1/iot/ota`       | `x-api-key` (=uuid) | OTA check. Returns `update_available`, `latest_version`, `bin_file_url` if newer firmware exists. |
 
-### Auth & user management — mounted at `/api/auth`
+### Auth & user management — mounted at `/api/v1/auth`
 | Method | Path               | Auth        | Purpose                                                                 |
 |--------|--------------------|-------------|-------------------------------------------------------------------------|
-| POST   | `/api/auth/register` | none      | Register a user. Body: `name, email, password, role`.                   |
-| POST   | `/api/auth/login`  | none        | Authenticate. Body: `email, password`. Returns `{ token, user }`.        |
-| GET    | `/api/auth/me`     | JWT         | Return currently authenticated user from token.                         |
+| POST   | `/api/v1/auth/register` | none      | Register a user. Body: `name, email, password` (selalu tulis role `viewer`). |
+| POST   | `/api/v1/auth/login`  | none        | Authenticate. Body: `email, password`. Returns `{ token, user }`.        |
+| GET    | `/api/v1/auth/me`     | JWT         | Return currently authenticated user from token.                         |
+| POST   | `/api/v1/auth/logout` | none        | Stateless logout → `200 { message: 'Logged out' }`.                     |
 
-### Sensor data query — mounted at `/api/data` (JWT required)
+### Sensor data query — mounted at `/api/v1/data` (JWT required)
 | Method | Path                                          | Auth | Purpose                                                                 |
 |--------|-----------------------------------------------|------|-------------------------------------------------------------------------|
-| GET    | `/api/data/devices/:uuid/data/:sensorType`    | JWT  | Query readings for a device (`aqms` \| `soc`). Params: `start_time`, `end_time`, `limit`. |
+| GET    | `/api/v1/data/devices/:uuid/data/:sensorType`    | JWT  | Query readings for a device (`aqms` \| `soc`). Params: `start_time`, `end_time`, `limit`. |
 
-### Device management (dashboard) — mounted at `/api/devices` (admin required)
+### Device management (dashboard) — mounted at `/api/v1/devices` (JWT; admin per-route)
 | Method | Path                         | Auth        | Purpose                                                                 |
 |--------|------------------------------|-------------|-------------------------------------------------------------------------|
-| GET    | `/api/devices`              | admin       | List all active devices.                                                |
-| GET    | `/api/devices/unregistered` | admin       | List devices seen via `/identity` but not yet registered.              |
-| GET    | `/api/devices/:uuid`        | admin       | Device detail + reading counts.                                         |
-| POST   | `/api/devices`              | admin       | Register a device. Body: `uuid, mac_address, name, type, project_name`. |
-| PUT    | `/api/devices/:uuid`        | admin       | Update `name`, `type`, and/or `project_name`.                          |
-| DELETE | `/api/devices/:uuid`        | admin       | Soft delete device.                                                     |
+| GET    | `/api/v1/devices`              | JWT       | List all active devices.                                                |
+| GET    | `/api/v1/devices/unregistered` | admin       | List devices seen via `/identity` but not yet registered.              |
+| GET    | `/api/v1/devices/:uuid`        | JWT       | Device detail + reading counts.                                         |
+| POST   | `/api/v1/devices`              | admin       | Register a device. Body: `uuid, mac_address, name, type, project_name`. |
+| PUT    | `/api/v1/devices/:uuid`        | admin       | Update `name`, `type`, and/or `project_name`.                          |
+| DELETE | `/api/v1/devices/:uuid`        | admin       | Soft delete device.                                                     |
 
-### User management (dashboard) — mounted at `/api/users` (admin required)
+### User management (dashboard) — mounted at `/api/v1/users` (JWT + admin)
 | Method | Path                         | Auth        | Purpose                                                                 |
 |--------|------------------------------|-------------|-------------------------------------------------------------------------|
-| GET    | `/api/users`                | admin       | List all registered users (id, name, email, role, created_at).          |
+| GET    | `/api/v1/users`                | admin       | List all registered users (id, name, email, role, created_at).          |
+| POST   | `/api/v1/users`                | admin       | Create user (`email,password,fullName|name,role?`, default `'user'`).   |
 
-### Firmware management (OTA) — mounted at `/api/firmware` (admin required)
+### Firmware management (OTA) — mounted at `/api/v1/firmware` (JWT + admin)
 | Method | Path                              | Auth   | Purpose                                                                 |
 |--------|-----------------------------------|--------|-------------------------------------------------------------------------|
-| GET    | `/api/firmware`                  | admin  | List all firmware releases.                                             |
-| POST   | `/api/firmware`                  | admin  | Create a release (`project_name, version, bin_file_url, changelog?`).   |
+| GET    | `/api/v1/firmware`                  | admin  | List all firmware releases.                                             |
+| POST   | `/api/v1/firmware`                  | admin  | Create a release (`project_name, version, bin_file_url, changelog?`).   |
 
+## Deploy
+
+- **Cloudflare Worker (utama):** isi `[[hyperdrive]] id` di `wrangler.toml`, set secret (`wrangler secret put JWT_SECRET IOT_DEVICE_SECRET`), lalu `npx wrangler deploy --dry-run` untuk validasi config / `wrangler deploy` untuk rilis.
+- **VPS/Docker (cadangan):** `npm run build && npm start` (`node dist/server-node.js`); `npm run db:init` sekali per database.
 ## Project Layout
 
-- `src/index.ts` — Express app entry point, route mounting, global middleware.
-- `src/db/pool.ts` — mysql2 connection pool + `query()` helper.
+- `src/app.ts` — Hono `createApp` factory, route mounting `/api/v1/*`, global middleware.
+- `src/server-node.ts` — entrypoint VPS/Node (`@hono/node-server` + pool mysql2).
+- `src/worker.ts` — entrypoint Cloudflare Worker (Hyperdrive + secret binding).
+- `src/config/env.ts` — `loadEnv`, satu-satunya pembaca env.
+- `src/db/adapter.ts` — `DbQuery` + `setQueryAdapter`/`getQueryAdapter` (titik pisah Node vs Hyperdrive).
+- `src/db/pool.ts` — mysql2 connection pool (Node) + `query()` helper.
+- `src/db/hyperdrive.ts` — `createHyperdriveQuery` (Worker).
 - `src/db/schema.sql` — SQL schema.
 - `src/db/init.ts` — one-shot schema initializer (`npm run db:init`).
-- `src/middleware/auth.ts` — `authenticateJWT` and `requireAdmin`.
-- `src/routes/` — route handlers (`auth.ts`, `iot.ts`, `data.ts`, `devices.ts`, `firmware.ts`, `users.ts`).
+- `src/middleware/auth.ts` — `createAuthenticateJWT` (`jose`) and `requireAdmin`.
+- `src/routes/` — Hono route factories (`auth.ts`, `iot.ts`, `data.ts`, `devices.ts`, `firmware.ts`, `users.ts`).
 
 ## Notes
 

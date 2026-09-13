@@ -1,18 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import request from 'supertest';
+import { createApp } from '../src/app.js';
+import { setQueryAdapter } from '../src/db/adapter.js';
 
 // Intercept the DB layer so we can assert what role is actually written,
 // without needing a live MySQL instance.
 const queryMock = vi.fn();
-vi.mock('../src/db/pool.js', () => ({
-  query: (...args: any[]) => queryMock(...args),
-  pool: { end: vi.fn() },
-}));
 
-// Imported after the mock is hoisted into place.
-import app from '../src/index.js';
+function buildApp() {
+  setQueryAdapter(queryMock);
+  return createApp({ query: queryMock, jwtSecret: 'secret', iotSecret: 'secret' });
+}
 
-describe('POST /api/auth/register security', () => {
+describe('POST /api/v1/auth/register security', () => {
   beforeEach(() => {
     queryMock.mockReset();
   });
@@ -22,9 +21,11 @@ describe('POST /api/auth/register security', () => {
     queryMock.mockResolvedValueOnce([]);
     queryMock.mockResolvedValueOnce({ insertId: 1 });
 
-    const res = await request(app)
-      .post('/api/auth/register')
-      .send({ name: 'Eve', email: 'eve@example.com', password: 'secret123', role: 'admin' });
+    const res = await buildApp().request('/api/v1/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Eve', email: 'eve@example.com', password: 'secret123', role: 'admin' }),
+    });
 
     expect(res.status).toBe(201);
     // The INSERT call must bind 'viewer', never 'admin', from the body.
@@ -35,9 +36,11 @@ describe('POST /api/auth/register security', () => {
   });
 
   it('still requires name, email, password', async () => {
-    const res = await request(app)
-      .post('/api/auth/register')
-      .send({ role: 'admin' });
+    const res = await buildApp().request('/api/v1/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'admin' }),
+    });
     expect(res.status).toBe(400);
   });
 });

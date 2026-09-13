@@ -96,57 +96,57 @@ CREATE TABLE IF NOT EXISTS user (
 
 ---
 
-## 2. API Endpoints
+## 2. API Endpoints (berversi `/api/v1`; path lama tanpa `/v1` dimatikan — 404)
 
-### A. IoT Device Endpoints (`/api/iot`)
-1. `POST /api/iot/identity`
+### A. IoT Device Endpoints (`/api/v1/iot`)
+1. `POST /api/v1/iot/identity`
    - Headers: `x-device-secret: <SECRET>`
    - Body: `{"mac_address": "AA:BB:CC:DD:EE:FF"}`
    - Action: Validasi secret, cek tabel `device`. Bila ditemukan kembalikan `{uuid, type, project_name}`. Bila tidak ada, upsert ke `unregistered_device` dan kembalikan 404.
-2. `POST /api/iot/ingest`
+2. `POST /api/v1/iot/ingest`
    - Headers: `x-api-key: <UUID>`
    - Body: JSON data payload
    - Action: Validasi device aktif via `uuid`. Masukkan raw payload ke `raw_data_log`. Parse sesuai `type` (`aqms` / `soc`), simpan ke tabel reading yang sesuai.
-3. `GET /api/iot/ota`
+3. `GET /api/v1/iot/ota`
    - Headers: `x-api-key: <UUID>`
    - Query: `?current_version=1.0.0`
    - Action: Update `current_version` di `device` jika beda. Cek rilis firmware terbaru untuk `project_name`. Kembalikan URL binary jika ada update baru.
 
-### B. Hot Path Sensor Data Query (`/api/data`)
-1. `GET /api/data/devices/:uuid/data/:sensorType`
+### B. Hot Path Sensor Data Query (`/api/v1/data`)
+1. `GET /api/v1/data/devices/:uuid/data/:sensorType`
    - Params: `uuid`, `sensorType` (`aqms` | `soc`)
    - Query: `?start_time=ISO&end_time=ISO&limit=100`
    - Action: Ambil data sensor terstruktur dari tabel yang bersesuaian.
 
-### C. Auth & User Management (`/api/auth`)
-1. `POST /api/auth/register` (Admin / Initial Setup, always writes `viewer`)
-2. `POST /api/auth/login` (Returns JWT token; error responses carry both `error` and `message`)
-3. `GET /api/auth/me` (Auth Bearer header)
-4. `POST /api/auth/logout` → `200 { message: 'Logged out' }` (no auth; FE clears session client-side)
+### C. Auth & User Management (`/api/v1/auth`)
+1. `POST /api/v1/auth/register` (Admin / Initial Setup, always writes `viewer`)
+2. `POST /api/v1/auth/login` (Returns JWT token; error responses carry both `error` and `message`)
+3. `GET /api/v1/auth/me` (Auth Bearer header)
+4. `POST /api/v1/auth/logout` → `200 { message: 'Logged out' }` (no auth; FE clears session client-side)
 
-### D. Device Management Dashboard (`/api/devices`)
-1. `GET /api/devices` (List semua device aktif)
-2. `POST /api/devices` (Register device baru dengan manual UUID)
-3. `GET /api/devices/unregistered` (List MAC address yang menunggu aktivasi)
-4. `GET /api/devices/:uuid` (Detail status & info device)
-5. `PUT /api/devices/:uuid` (Update metadata device)
-6. `DELETE /api/devices/:uuid` (Soft delete `is_deleted = TRUE`)
+### D. Device Management Dashboard (`/api/v1/devices`)
+1. `GET /api/v1/devices` (List semua device aktif)
+2. `POST /api/v1/devices` (Register device baru dengan manual UUID)
+3. `GET /api/v1/devices/unregistered` (List MAC address yang menunggu aktivasi)
+4. `GET /api/v1/devices/:uuid` (Detail status & info device)
+5. `PUT /api/v1/devices/:uuid` (Update metadata device)
+6. `DELETE /api/v1/devices/:uuid` (Soft delete `is_deleted = TRUE`)
 
-### E. Firmware Release Management (`/api/firmware`)
-1. `GET /api/firmware` (List semua release — returns array langsung)
-2. `POST /api/firmware` (Buat release baru)
+### E. Firmware Release Management (`/api/v1/firmware`)
+1. `GET /api/v1/firmware` (List semua release — returns array langsung)
+2. `POST /api/v1/firmware` (Buat release baru)
 
-### F. User Management Dashboard (`/api/users`)
-1. `GET /api/users` (JWT + admin — returns `{ users: [...] }`)
-2. `POST /api/users` (JWT + admin — body `{email,password,fullName|name,role?}`, role default `'user'`)
+### F. User Management Dashboard (`/api/v1/users`)
+1. `GET /api/v1/users` (JWT + admin — returns `{ users: [...] }`)
+2. `POST /api/v1/users` (JWT + admin — body `{email,password,fullName|name,role?}`, role default `'user'`)
 
 ### G. Response Envelopes & Field Mapping (BE → FE)
 | Endpoint | Bentuk respons |
 |---|---|
-| `GET /api/devices` | `{ devices: [...] }` |
-| `GET /api/devices/unregistered` | `{ data: [{macAddress,lastSeenAt}] }` |
-| `GET /api/users` | `{ users: [...] }` |
-| `GET /api/firmware` | array langsung `[{id,version,url,releaseNotes,createdAt}]` |
+| `GET /api/v1/devices` | `{ devices: [...] }` |
+| `GET /api/v1/devices/unregistered` | `{ data: [{macAddress,lastSeenAt}] }` |
+| `GET /api/v1/users` | `{ users: [...] }` |
+| `GET /api/v1/firmware` | array langsung `[{id,version,url,releaseNotes,createdAt}]` |
 
 | Kolom DB | Field JSON |
 |---|---|
@@ -161,7 +161,13 @@ CREATE TABLE IF NOT EXISTS user (
 
 Role DB: `admin|engineer|viewer|user` (register selalu tulis `viewer`).
 
-### H. Migrasi DB Lama (Hostinger — tanpa migration runner)
+### H. Portabilitas Cloudflare (Hyperdrive)
+- Satu codebase Hono: `src/app.ts` (`createApp`) tanpa `listen`/env global.
+- `src/server-node.ts` (VPS): pool mysql2 + `@hono/node-server`.
+- `src/worker.ts` (Cloudflare utama): `createHyperdriveQuery` dari `src/db/hyperdrive.ts` via binding `HYPERDRIVE` (`wrangler.toml`); secret `JWT_SECRET`/`IOT_DEVICE_SECRET` via `wrangler secret put`.
+- JWT memakai `jose` (WebCrypto); secret sama dengan produksi lama sehingga token lama tetap valid. `bcryptjs` dipertahankan (hash lama tetap valid).
+
+### I. Migrasi DB Lama (Hostinger — tanpa migration runner)
 ```sql
 ALTER TABLE device MODIFY mac_address VARCHAR(17) NULL; ALTER TABLE device ADD COLUMN latitude DECIMAL(10,7) NULL, ADD COLUMN longitude DECIMAL(10,7) NULL; ALTER TABLE aqms_reading ADD COLUMN co2 DECIMAL(6,2) NULL; ALTER TABLE user MODIFY role ENUM('admin','engineer','viewer','user') DEFAULT 'viewer';
 ```
