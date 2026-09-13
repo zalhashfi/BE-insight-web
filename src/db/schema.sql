@@ -3,11 +3,13 @@
 CREATE TABLE IF NOT EXISTS device (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     uuid VARCHAR(64) UNIQUE NOT NULL,
-    mac_address VARCHAR(17) UNIQUE NOT NULL,
+    mac_address VARCHAR(17) UNIQUE NULL,
     name VARCHAR(100) NOT NULL,
     type ENUM('aqms', 'soc') NOT NULL,
     project_name VARCHAR(100) NOT NULL,
     current_version VARCHAR(30) DEFAULT '1.0.0',
+    latitude DECIMAL(10,7) NULL,
+    longitude DECIMAL(10,7) NULL,
     last_seen_at TIMESTAMP NULL,
     is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS aqms_reading (
     pm25 DECIMAL(5,2),
     no2 DECIMAL(5,2),
     co DECIMAL(5,2),
+    co2 DECIMAL(6,2),
     temperature DECIMAL(4,1),
     humidity DECIMAL(4,1),
     ws DECIMAL(5,1),
@@ -72,7 +75,7 @@ CREATE TABLE IF NOT EXISTS user (
     name VARCHAR(100) NOT NULL,
     email VARCHAR(150) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role ENUM('admin', 'viewer') DEFAULT 'admin',
+    role ENUM('admin', 'engineer', 'viewer', 'user') DEFAULT 'viewer',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
