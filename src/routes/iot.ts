@@ -85,13 +85,14 @@ iotRouter.post('/ingest', async (req: Request, res: Response) => {
     if (currentDevice.type === 'aqms') {
       await query(
         `INSERT INTO aqms_reading 
-          (device_id, pm25, no2, co, temperature, humidity, ws, wd, measured_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (device_id, pm25, no2, co, co2, temperature, humidity, ws, wd, measured_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           currentDevice.id,
           payload.pm25 ?? null,
           payload.no2 ?? null,
           payload.co ?? null,
+          payload.co2 ?? null,
           payload.temperature ?? payload.temp ?? null,
           payload.humidity ?? payload.hum ?? null,
           payload.ws ?? null,

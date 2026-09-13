@@ -27,8 +27,8 @@ app.use('/api/auth', authRouter);
 // Sensor data query — JWT protected
 app.use('/api/data', authenticateJWT, dataRouter);
 
-// Device Management Dashboard (JWT auth + admin protected)
-app.use('/api/devices', authenticateJWT, requireAdmin, devicesRouter);
+// Device Management Dashboard (JWT auth; admin lock is per-route in devicesRouter)
+app.use('/api/devices', authenticateJWT, devicesRouter);
 
 // User Management Dashboard (JWT auth + admin protected)
 app.use('/api/users', authenticateJWT, requireAdmin, usersRouter);

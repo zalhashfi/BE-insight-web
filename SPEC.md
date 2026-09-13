@@ -7,11 +7,13 @@
 CREATE TABLE IF NOT EXISTS device (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     uuid VARCHAR(64) UNIQUE NOT NULL,
-    mac_address VARCHAR(17) UNIQUE NOT NULL,
+    mac_address VARCHAR(17) UNIQUE NULL,
     name VARCHAR(100) NOT NULL,
     type ENUM('aqms', 'soc') NOT NULL,
     project_name VARCHAR(100) NOT NULL,
     current_version VARCHAR(30) DEFAULT '1.0.0',
+    latitude DECIMAL(10,7) NULL,
+    longitude DECIMAL(10,7) NULL,
     last_seen_at TIMESTAMP NULL,
     is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -34,6 +36,7 @@ CREATE TABLE IF NOT EXISTS aqms_reading (
     pm25 DECIMAL(5,2),
     no2 DECIMAL(5,2),
     co DECIMAL(5,2),
+    co2 DECIMAL(6,2),
     temperature DECIMAL(4,1),
     humidity DECIMAL(4,1),
     ws DECIMAL(5,1),
@@ -86,7 +89,7 @@ CREATE TABLE IF NOT EXISTS user (
     name VARCHAR(100) NOT NULL,
     email VARCHAR(150) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role ENUM('admin', 'viewer') DEFAULT 'admin',
+    role ENUM('admin', 'engineer', 'viewer', 'user') DEFAULT 'viewer',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -109,16 +112,17 @@ CREATE TABLE IF NOT EXISTS user (
    - Query: `?current_version=1.0.0`
    - Action: Update `current_version` di `device` jika beda. Cek rilis firmware terbaru untuk `project_name`. Kembalikan URL binary jika ada update baru.
 
-### B. Hot Path Sensor Data Query (`/api/devices`)
-1. `GET /api/devices/:uuid/data/:sensorType`
+### B. Hot Path Sensor Data Query (`/api/data`)
+1. `GET /api/data/devices/:uuid/data/:sensorType`
    - Params: `uuid`, `sensorType` (`aqms` | `soc`)
    - Query: `?start_time=ISO&end_time=ISO&limit=100`
    - Action: Ambil data sensor terstruktur dari tabel yang bersesuaian.
 
 ### C. Auth & User Management (`/api/auth`)
-1. `POST /api/auth/register` (Admin / Initial Setup)
-2. `POST /api/auth/login` (Returns JWT token)
+1. `POST /api/auth/register` (Admin / Initial Setup, always writes `viewer`)
+2. `POST /api/auth/login` (Returns JWT token; error responses carry both `error` and `message`)
 3. `GET /api/auth/me` (Auth Bearer header)
+4. `POST /api/auth/logout` → `200 { message: 'Logged out' }` (no auth; FE clears session client-side)
 
 ### D. Device Management Dashboard (`/api/devices`)
 1. `GET /api/devices` (List semua device aktif)
@@ -129,5 +133,35 @@ CREATE TABLE IF NOT EXISTS user (
 6. `DELETE /api/devices/:uuid` (Soft delete `is_deleted = TRUE`)
 
 ### E. Firmware Release Management (`/api/firmware`)
-1. `GET /api/firmware` (List semua release)
+1. `GET /api/firmware` (List semua release — returns array langsung)
 2. `POST /api/firmware` (Buat release baru)
+
+### F. User Management Dashboard (`/api/users`)
+1. `GET /api/users` (JWT + admin — returns `{ users: [...] }`)
+2. `POST /api/users` (JWT + admin — body `{email,password,fullName|name,role?}`, role default `'user'`)
+
+### G. Response Envelopes & Field Mapping (BE → FE)
+| Endpoint | Bentuk respons |
+|---|---|
+| `GET /api/devices` | `{ devices: [...] }` |
+| `GET /api/devices/unregistered` | `{ data: [{macAddress,lastSeenAt}] }` |
+| `GET /api/users` | `{ users: [...] }` |
+| `GET /api/firmware` | array langsung `[{id,version,url,releaseNotes,createdAt}]` |
+
+| Kolom DB | Field JSON |
+|---|---|
+| `project_name` | `projectName` |
+| `mac_address` | `macAddress` |
+| `current_version` | `currentVersion` |
+| `last_seen_at` | `lastSeenAt` |
+| `created_at` | `createdAt` |
+| `name` | `name` + `fullName` (alias ganda) |
+| `bin_file_url` | `url` |
+| `changelog` | `releaseNotes` |
+
+Role DB: `admin|engineer|viewer|user` (register selalu tulis `viewer`).
+
+### H. Migrasi DB Lama (Hostinger — tanpa migration runner)
+```sql
+ALTER TABLE device MODIFY mac_address VARCHAR(17) NULL; ALTER TABLE device ADD COLUMN latitude DECIMAL(10,7) NULL, ADD COLUMN longitude DECIMAL(10,7) NULL; ALTER TABLE aqms_reading ADD COLUMN co2 DECIMAL(6,2) NULL; ALTER TABLE user MODIFY role ENUM('admin','engineer','viewer','user') DEFAULT 'viewer';
+```
