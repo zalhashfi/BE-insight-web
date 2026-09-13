@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { loadEnv } from '../config/env.js';
 import { query } from '../db/pool.js';
 import { authenticateJWT, AuthRequest } from '../middleware/auth.js';
 
@@ -98,7 +99,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials', message: 'Invalid credentials' });
     }
 
-    const secret = process.env.JWT_SECRET || 'secret';
+    const secret = loadEnv(process.env).jwtSecret;
     const payload = { id: user.id, name: user.name, email: user.email, role: user.role };
     const token = jwt.sign(payload, secret, { expiresIn: '24h' });
 

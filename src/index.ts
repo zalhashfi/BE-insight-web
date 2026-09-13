@@ -8,6 +8,7 @@ import { devicesRouter } from './routes/devices.js';
 import { firmwareRouter } from './routes/firmware.js';
 import { usersRouter } from './routes/users.js';
 import { authenticateJWT, requireAdmin } from './middleware/auth.js';
+import { loadEnv } from './config/env.js';
 
 dotenv.config();
 
@@ -36,8 +37,9 @@ app.use('/api/users', authenticateJWT, requireAdmin, usersRouter);
 // Firmware Management (JWT auth + admin protected)
 app.use('/api/firmware', authenticateJWT, requireAdmin, firmwareRouter);
 
-const PORT = Number(process.env.PORT) || 3000;
-if (process.env.NODE_ENV !== 'test') {
+const env = loadEnv(process.env);
+const PORT = env.port;
+if (env.nodeEnv !== 'test') {
   app.listen(PORT, () => console.log(`🚀 BE-insight-web listening on :${PORT}`));
 }
 

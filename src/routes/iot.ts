@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { loadEnv } from '../config/env.js';
 import { query } from '../db/pool.js';
 
 export const iotRouter = Router();
@@ -6,7 +7,7 @@ export const iotRouter = Router();
 // 1. POST /identity
 iotRouter.post('/identity', async (req: Request, res: Response) => {
   const deviceSecret = req.header('x-device-secret');
-  const iotDeviceSecret = process.env.IOT_DEVICE_SECRET;
+  const iotDeviceSecret = loadEnv(process.env).iotDeviceSecret;
 
   if (!deviceSecret || deviceSecret !== iotDeviceSecret) {
     return res.status(401).json({ error: 'Unauthorized device' });

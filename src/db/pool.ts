@@ -1,15 +1,20 @@
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
+import { loadEnv } from '../config/env.js';
+import { setQueryAdapter, getQueryAdapter, type DbQuery } from './adapter.js';
 
 dotenv.config();
 
-// Konfigurasi Connection Pool MySQL Pure SQL
+const env = loadEnv(process.env);
+
+// Konfigurasi Connection Pool MySQL Pure SQL (Node/VPS).
+// Worker Cloudflare memakai adapter Hyperdrive via setQueryAdapter (lihat src/db/hyperdrive.ts).
 export const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'insight_web_db',
-  port: Number(process.env.DB_PORT) || 3306,
+  host: env.dbHost,
+  user: env.dbUser,
+  password: env.dbPassword,
+  database: env.dbName,
+  port: env.dbPort,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -17,8 +22,14 @@ export const pool = mysql.createPool({
   keepAliveInitialDelay: 0
 });
 
-// Helper eksekusi query dengan parameterized query
-export async function query<T = any>(sql: string, params?: any[]): Promise<T> {
-  const [results] = await pool.execute(sql, params);
+const defaultQuery: DbQuery = async <T>(sql: string, params?: Array<string | number | null>): Promise<T> => {
+  const [results] = await pool.execute(sql, params as never[]);
   return results as T;
+};
+
+setQueryAdapter(defaultQuery);
+
+// Helper eksekusi query dengan parameterized query — mendelegasikan ke adapter aktif.
+export async function query<T = any>(sql: string, params?: any[]): Promise<T> {
+  return getQueryAdapter()<T>(sql, params);
 }

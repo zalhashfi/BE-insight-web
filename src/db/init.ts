@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'url';
+import { loadEnv } from '../config/env.js';
 import { pool } from './pool.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10,8 +11,9 @@ const __dirname = path.dirname(__filename);
 async function seedAdmin() {
   // ponytail: initial admin is seeded only if SEED_ADMIN_EMAIL/PASSWORD are set.
   // Add when: admin self-service signup is wanted — then gate /register with authenticateJWT + requireAdmin instead.
-  const email = process.env.SEED_ADMIN_EMAIL;
-  const password = process.env.SEED_ADMIN_PASSWORD;
+  const seedEnv = loadEnv(process.env);
+  const email = seedEnv.seedAdminEmail;
+  const password = seedEnv.seedAdminPassword;
   if (!email || !password) return;
 
   const existing = await pool.execute<any[]>('SELECT id FROM user WHERE email = ?', [email]);
@@ -23,7 +25,7 @@ async function seedAdmin() {
   const hashed = await bcrypt.hash(password, 10);
   await pool.execute(
     'INSERT INTO user (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-    [process.env.SEED_ADMIN_NAME || 'Administrator', email, hashed, 'admin']
+    [seedEnv.seedAdminName, email, hashed, 'admin']
   );
   console.log('✅ Seed admin created:', email);
 }
