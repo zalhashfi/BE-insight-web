@@ -1,45 +1,48 @@
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { loadEnv } from '../config/env.js';
+import { createMiddleware } from 'hono/factory';
+import { jwtVerify } from 'jose';
 
-export interface AuthRequest extends Request {
-  user?: {
-    id: number;
-    name: string;
-    email: string;
-    role: string;
+export interface AuthUser {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export interface AuthEnv {
+  Variables: {
+    user: AuthUser;
   };
 }
 
 export function createAuthenticateJWT(jwtSecret: string) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
-    const authHeader = req.headers.authorization;
+  return createMiddleware<AuthEnv>(async (c, next) => {
+    const authHeader = c.req.header('authorization');
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Access token required' });
+      return c.json({ error: 'Access token required' }, 401);
     }
 
     const token = authHeader.split(' ')[1];
 
     try {
-      const decoded = jwt.verify(token, jwtSecret) as AuthRequest['user'];
-      req.user = decoded;
-      next();
-    } catch (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
+      const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret));
+      c.set('user', {
+        id: payload.id as number,
+        name: payload.name as string,
+        email: payload.email as string,
+        role: payload.role as string,
+      });
+      await next();
+    } catch {
+      return c.json({ error: 'Invalid or expired token' }, 403);
     }
-  };
+  });
 }
 
-// Thin wrapper agar impor lama tetap jalan; membaca secret saat request (setelah dotenv terisi).
-// Step 2 (Hono) akan menghapus wrapper ini dan memakai factory + AppEnv eksplisit.
-export const authenticateJWT = (req: AuthRequest, res: Response, next: NextFunction) => {
-  return createAuthenticateJWT(loadEnv(process.env).jwtSecret)(req, res, next);
-};
-
-export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (!req.user || req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin privilege required' });
+export const requireAdmin = createMiddleware<AuthEnv>(async (c, next) => {
+  const user = c.get('user');
+  if (!user || user.role !== 'admin') {
+    return c.json({ error: 'Admin privilege required' }, 403);
   }
-  next();
-};
+  await next();
+});

@@ -1,0 +1,10 @@
+name = "be-insight-web"
+main = "src/worker.ts"
+compatibility_date = "2026-09-14"
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<isi saat deploy>"
+
+# Semua secret via `wrangler secret put JWT_SECRET` / `wrangler secret put IOT_DEVICE_SECRET`.
+# Jangan taruh secret di [vars].

@@ -1,8 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
-import { query } from '../db/pool.js';
-
-export const usersRouter = Router();
+import { getQueryAdapter } from '../db/adapter.js';
 
 interface UserRow {
   id: number;
@@ -37,61 +35,66 @@ function toUser(row: UserRow) {
 
 const MANAGED_ROLES = ['admin', 'engineer', 'user', 'viewer'] as const;
 
-// GET / - List all registered users without password_hash
-usersRouter.get('/', async (_req: Request, res: Response) => {
-  try {
-    const users = await query<UserRow[]>(
-      'SELECT id, name, email, role, created_at FROM user ORDER BY created_at DESC'
-    );
-    return res.status(200).json({ users: (users || []).map(toUser) });
-  } catch (err: unknown) {
-    console.error('Failed to fetch users:', err);
-    return res.status(500).json({ error: 'Failed to fetch users', details: usersMessage(err) });
-  }
-});
+export function createUsersRouter() {
+  const router = new Hono();
 
-// POST / - Create user (admin only via mount in index.ts)
-usersRouter.post('/', async (req: Request, res: Response) => {
-  try {
-    const body: Record<string, string | undefined> = req.body ?? {};
-    const email = body.email;
-    const password = body.password;
-    const name = body.name ?? body.fullName;
-    const role = body.role ?? 'user';
-
-    if (!email || !password || !name) {
-      return res.status(400).json({ error: 'Missing required fields: email, password, name' });
+  // GET / - List all registered users without password_hash
+  router.get('/', async (c) => {
+    try {
+      const query = getQueryAdapter();
+      const users = await query<UserRow[]>(
+        'SELECT id, name, email, role, created_at FROM user ORDER BY created_at DESC'
+      );
+      return c.json({ users: (users || []).map(toUser) }, 200);
+    } catch (err: unknown) {
+      console.error('Failed to fetch users:', err);
+      return c.json({ error: 'Failed to fetch users', details: usersMessage(err) }, 500);
     }
-    if (!(MANAGED_ROLES as readonly string[]).includes(role)) {
-      return res.status(400).json({ error: 'Invalid role. Must be "admin", "engineer", "user", or "viewer"' });
-    }
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
+  });
 
-    const existing = await query<IdRow[]>('SELECT id FROM user WHERE email = ?', [email]);
-    if (existing && existing.length > 0) {
-      return res.status(400).json({ error: 'Email already registered' });
+  // POST / - Create user (admin only via mount in app.ts)
+  router.post('/', async (c) => {
+    try {
+      const query = getQueryAdapter();
+      const body: Record<string, string | undefined> = await c.req.json().catch(() => ({}));
+      const email = body.email;
+      const password = body.password;
+      const name = body.name ?? body.fullName;
+      const role = body.role ?? 'user';
+
+      if (!email || !password || !name) {
+        return c.json({ error: 'Missing required fields: email, password, name' }, 400);
+      }
+      if (!(MANAGED_ROLES as readonly string[]).includes(role)) {
+        return c.json({ error: 'Invalid role. Must be "admin", "engineer", "user", or "viewer"' }, 400);
+      }
+      if (password.length < 8) {
+        return c.json({ error: 'Password must be at least 8 characters' }, 400);
+      }
+
+      const existing = await query<IdRow[]>('SELECT id FROM user WHERE email = ?', [email]);
+      if (existing && existing.length > 0) {
+        return c.json({ error: 'Email already registered' }, 400);
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const result = await query<InsertResult>(
+        'INSERT INTO user (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+        [name, email, hashedPassword, role]
+      );
+
+      return c.json(
+        {
+          message: 'User created successfully',
+          user: { id: result.insertId, email, name, fullName: name, role },
+        },
+        201
+      );
+    } catch (err: unknown) {
+      console.error('Failed to create user:', err);
+      return c.json({ error: 'Failed to create user', details: usersMessage(err) }, 500);
     }
+  });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await query<InsertResult>(
-      'INSERT INTO user (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-      [name, email, hashedPassword, role]
-    );
-
-    return res.status(201).json({
-      message: 'User created successfully',
-      user: {
-        id: result.insertId,
-        email,
-        name,
-        fullName: name,
-        role,
-      },
-    });
-  } catch (err: unknown) {
-    console.error('Failed to create user:', err);
-    return res.status(500).json({ error: 'Failed to create user', details: usersMessage(err) });
-  }
-});
+  return router;
+}

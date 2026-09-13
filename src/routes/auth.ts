@@ -1,11 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { loadEnv } from '../config/env.js';
-import { query } from '../db/pool.js';
-import { authenticateJWT, AuthRequest } from '../middleware/auth.js';
-
-export const authRouter = Router();
+import { SignJWT } from 'jose';
+import { getQueryAdapter } from '../db/adapter.js';
+import { createAuthenticateJWT, type AuthUser } from '../middleware/auth.js';
 
 interface UserRow {
   id: number;
@@ -37,96 +34,116 @@ function toAuthUser(row: Pick<UserRow, 'id' | 'name' | 'email' | 'role'>) {
   };
 }
 
-// POST /register
-// ponytail: Allow open registration but always default to 'viewer' role.
-// Add when: if registration should be admin-gated, apply authenticateJWT + requireAdmin middleware.
-authRouter.post('/register', async (req: Request, res: Response) => {
-  const { name, email, password } = req.body ?? {};
-  const role = 'viewer'; // Never accept role from unauthenticated request
+async function signToken(payload: Omit<AuthUser, never> & Record<string, unknown>, secret: string): Promise<string> {
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('24h')
+    .sign(new TextEncoder().encode(secret));
+}
 
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'Name, email, and password are required' });
-  }
+export function createAuthRouter(deps: { jwtSecret: string }) {
+  const router = new Hono();
+  const authenticateJWT = createAuthenticateJWT(deps.jwtSecret);
 
-  try {
-    const existingUsers = await query<IdRow[]>('SELECT id FROM user WHERE email = ?', [email]);
-    if (existingUsers && existingUsers.length > 0) {
-      return res.status(400).json({ error: 'Email already registered' });
+  // POST /register
+  router.post('/register', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { name, email, password } = body ?? {};
+    const role = 'viewer'; // Never accept role from unauthenticated request
+
+    if (!name || !email || !password) {
+      return c.json({ error: 'Name, email, and password are required' }, 400);
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await query<InsertResult>(
-      'INSERT INTO user (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-      [name, email, hashedPassword, role]
-    );
+    try {
+      const query = getQueryAdapter();
+      const existingUsers = await query<IdRow[]>('SELECT id FROM user WHERE email = ?', [email]);
+      if (existingUsers && existingUsers.length > 0) {
+        return c.json({ error: 'Email already registered' }, 400);
+      }
 
-    return res.status(201).json({
-      message: 'User registered successfully',
-      user: {
-        id: result.insertId,
-        name,
-        fullName: name,
-        email,
-        role,
-      },
-    });
-  } catch (err: unknown) {
-    console.error('Registration failed:', err);
-    return res.status(500).json({ error: 'Registration failed', details: authMessage(err) });
-  }
-});
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const result = await query<InsertResult>(
+        'INSERT INTO user (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+        [name, email, hashedPassword, role]
+      );
 
-// POST /login
-authRouter.post('/login', async (req: Request, res: Response) => {
-  const { email, password } = req.body ?? {};
-
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required', message: 'Email and password are required' });
-  }
-
-  try {
-    const users = await query<UserRow[]>(
-      'SELECT id, name, email, password_hash, role FROM user WHERE email = ?',
-      [email]
-    );
-    if (!users || users.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials', message: 'Invalid credentials' });
+      return c.json(
+        {
+          message: 'User registered successfully',
+          user: { id: result.insertId, name, fullName: name, email, role },
+        },
+        201
+      );
+    } catch (err: unknown) {
+      console.error('Registration failed:', err);
+      return c.json({ error: 'Registration failed', details: authMessage(err) }, 500);
     }
-
-    const user = users[0];
-    const isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid) {
-      return res.status(401).json({ error: 'Invalid credentials', message: 'Invalid credentials' });
-    }
-
-    const secret = loadEnv(process.env).jwtSecret;
-    const payload = { id: user.id, name: user.name, email: user.email, role: user.role };
-    const token = jwt.sign(payload, secret, { expiresIn: '24h' });
-
-    return res.status(200).json({ token, user: toAuthUser(user) });
-  } catch (err: unknown) {
-    console.error('Login failed:', err);
-    return res.status(500).json({ error: 'Login failed', details: authMessage(err) });
-  }
-});
-
-// POST /logout (stateless JWT — FE clears session client-side)
-authRouter.post('/logout', (_req: Request, res: Response) => {
-  return res.status(200).json({ message: 'Logged out' });
-});
-
-// GET /me
-authRouter.get('/me', authenticateJWT, (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-  return res.status(200).json({
-    user: {
-      id: req.user.id,
-      name: req.user.name,
-      fullName: req.user.name,
-      email: req.user.email,
-      role: req.user.role,
-    },
   });
-});
+
+  // POST /login
+  router.post('/login', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { email, password } = body ?? {};
+
+    if (!email || !password) {
+      return c.json(
+        { error: 'Email and password are required', message: 'Email and password are required' },
+        400
+      );
+    }
+
+    try {
+      const query = getQueryAdapter();
+      const users = await query<UserRow[]>(
+        'SELECT id, name, email, password_hash, role FROM user WHERE email = ?',
+        [email]
+      );
+      if (!users || users.length === 0) {
+        return c.json({ error: 'Invalid credentials', message: 'Invalid credentials' }, 401);
+      }
+
+      const user = users[0];
+      const isValid = await bcrypt.compare(password, user.password_hash);
+      if (!isValid) {
+        return c.json({ error: 'Invalid credentials', message: 'Invalid credentials' }, 401);
+      }
+
+      const payload = { id: user.id, name: user.name, email: user.email, role: user.role };
+      const token = await signToken(payload, deps.jwtSecret);
+
+      return c.json({ token, user: toAuthUser(user) }, 200);
+    } catch (err: unknown) {
+      console.error('Login failed:', err);
+      return c.json({ error: 'Login failed', details: authMessage(err) }, 500);
+    }
+  });
+
+  // POST /logout (stateless JWT — FE clears session client-side)
+  router.post('/logout', (c) => {
+    return c.json({ message: 'Logged out' }, 200);
+  });
+
+  // GET /me
+  router.get('/me', authenticateJWT, (c) => {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    return c.json(
+      {
+        user: {
+          id: user.id,
+          name: user.name,
+          fullName: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      },
+      200
+    );
+  });
+
+  return router;
+}

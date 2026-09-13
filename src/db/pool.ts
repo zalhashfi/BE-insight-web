@@ -1,7 +1,7 @@
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import { loadEnv } from '../config/env.js';
-import { setQueryAdapter, getQueryAdapter, type DbQuery } from './adapter.js';
+import { setQueryAdapter } from './adapter.js';
 
 dotenv.config();
 
@@ -22,14 +22,14 @@ export const pool = mysql.createPool({
   keepAliveInitialDelay: 0
 });
 
-const defaultQuery: DbQuery = async <T>(sql: string, params?: Array<string | number | null>): Promise<T> => {
+setQueryAdapter(async <T>(sql: string, params?: Array<string | number | null>): Promise<T> => {
   const [results] = await pool.execute(sql, params as never[]);
   return results as T;
-};
+});
 
-setQueryAdapter(defaultQuery);
-
-// Helper eksekusi query dengan parameterized query — mendelegasikan ke adapter aktif.
-export async function query<T = any>(sql: string, params?: any[]): Promise<T> {
-  return getQueryAdapter()<T>(sql, params);
+// Helper eksekusi query dengan parameterized query — signature stabil seperti kontrak #26/#27.
+// Catatan: route mengimpor getQueryAdapter dari ./adapter.js agar bundle Worker bebas mysql2.
+export async function query<T = unknown>(sql: string, params?: unknown[]): Promise<T> {
+  const [results] = await pool.execute(sql, params as never[]);
+  return results as T;
 }
