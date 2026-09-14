@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.*
+*.log
+.git
+.github
+tests
+vitest.config.ts
+.wrangler
+wrangler.toml
+README.md
+SPEC.md
+CONTRIBUTING.md
+docker-compose*.yml
