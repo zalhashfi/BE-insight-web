@@ -45,7 +45,15 @@ async function initDatabase() {
     const connection = await pool.getConnection();
     try {
       for (const statement of statements) {
-        await connection.query(statement);
+        try {
+          await connection.query(statement);
+        } catch (err) {
+          // MySQL tidak punya CREATE INDEX IF NOT EXISTS — db:init dijalankan ulang
+          // tiap deploy, jadi abaikan "Duplicate key name" bila index sudah ada.
+          const e = err as { errno?: number; code?: string };
+          if (e?.errno === 1061 || e?.code === 'ER_DUP_KEYNAME') continue;
+          throw err;
+        }
       }
       console.log('✅ Database schema initialized successfully!');
     } finally {

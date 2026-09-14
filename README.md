@@ -1,7 +1,7 @@
 # Insight Laboratory - Backend (BE-insight-web)
 
 RESTful API backend for the "Biru Langit" IoT environmental monitoring ecosystem
-(AQMS = Air Quality Monitoring System, SOC = Soil/Water Quality Monitoring).
+(AQMS = Air Quality Monitoring System).
 
 It receives raw sensor telemetry from ESP32 microcontrollers, serves it to the
 web dashboard, handles user auth, and provides over-the-air (OTA) firmware updates.
@@ -39,7 +39,7 @@ Worker di `src/worker.ts` (binding `HYPERDRIVE` + secret via `wrangler secret pu
    npm run db:init
    ```
    This executes `src/db/schema.sql` (creates tables: `user`, `device`,
-   `unregistered_device`, `raw_data_log`, `aqms_reading`, `soc_reading`,
+   `unregistered_device`, `raw_data_log`, `aqms_reading`,
    `firmware_release`).
 
 ## Installation & Running
@@ -84,7 +84,7 @@ Base path for versioned routes is `/api/v1`. Full health check is at root (`/hea
 | Method | Path                  | Auth header        | Purpose                                                                 |
 |--------|-----------------------|--------------------|-------------------------------------------------------------------------|
 | POST   | `/api/v1/iot/identity`  | `x-device-secret`  | Device boots: send `mac_address`, get back `{ uuid, type, project_name }`. |
-| POST   | `/api/v1/iot/ingest`    | `x-api-key` (=uuid) | Receive sensor JSON. Stored raw in `raw_data_log` and parsed into `aqms_reading`/`soc_reading`. |
+| POST   | `/api/v1/iot/ingest`    | `x-api-key` (=uuid) | Receive sensor JSON. Stored raw in `raw_data_log` and parsed into `aqms_reading`. |
 | GET    | `/api/v1/iot/ota`       | `x-api-key` (=uuid) | OTA check. Returns `update_available`, `latest_version`, `bin_file_url` if newer firmware exists. |
 
 ### Auth & user management — mounted at `/api/v1/auth`
@@ -97,8 +97,7 @@ Base path for versioned routes is `/api/v1`. Full health check is at root (`/hea
 
 ### Sensor data query — mounted at `/api/v1/data` (JWT required)
 | Method | Path                                          | Auth | Purpose                                                                 |
-|--------|-----------------------------------------------|------|-------------------------------------------------------------------------|
-| GET    | `/api/v1/data/devices/:uuid/data/:sensorType`    | JWT  | Query readings for a device (`aqms` \| `soc`). Params: `start_time`, `end_time`, `limit`. |
+| GET    | `/api/v1/data/devices/:uuid/data/:sensorType`    | JWT  | Query readings for a device (`aqms` only). Params: `start_time`, `end_time`, `limit`. |
 
 ### Device management (dashboard) — mounted at `/api/v1/devices` (JWT; admin per-route)
 | Method | Path                         | Auth        | Purpose                                                                 |

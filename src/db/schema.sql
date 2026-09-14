@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS device (
     uuid VARCHAR(64) UNIQUE NOT NULL,
     mac_address VARCHAR(17) UNIQUE NULL,
     name VARCHAR(100) NOT NULL,
-    type ENUM('aqms', 'soc') NOT NULL,
+    type ENUM('aqms') NOT NULL,
     project_name VARCHAR(100) NOT NULL,
     current_version VARCHAR(30) DEFAULT '1.0.0',
     latitude DECIMAL(10,7) NULL,
@@ -39,22 +39,6 @@ CREATE TABLE IF NOT EXISTS aqms_reading (
     FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS soc_reading (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    device_id BIGINT NOT NULL,
-    ph DECIMAL(3,2),
-    no2 DECIMAL(5,2),
-    ec DECIMAL(6,1),
-    temperature DECIMAL(4,1),
-    humidity DECIMAL(4,1),
-    n DECIMAL(5,2),
-    p DECIMAL(5,2),
-    k DECIMAL(5,2),
-    measured_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS firmware_release (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     project_name VARCHAR(100) NOT NULL,
@@ -79,8 +63,8 @@ CREATE TABLE IF NOT EXISTS user (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indeks Tambahan untuk Optimasi Query
-CREATE INDEX IF NOT EXISTS idx_raw_device_time ON raw_data_log(device_id, received_at DESC);
-CREATE INDEX IF NOT EXISTS idx_aqms_device_time ON aqms_reading(device_id, measured_at DESC);
-CREATE INDEX IF NOT EXISTS idx_soc_device_time ON soc_reading(device_id, measured_at DESC);
-CREATE INDEX IF NOT EXISTS idx_firmware_project_time ON firmware_release(project_name, created_at DESC);
+-- Indeks Tambahan untuk Optimasi Query (MySQL tidak mengenal IF NOT EXISTS untuk INDEX;
+-- idempotensi ditangani init.ts yang mengabaikan errno 1061 duplicate key name)
+CREATE INDEX idx_raw_device_time ON raw_data_log(device_id, received_at DESC);
+CREATE INDEX idx_aqms_device_time ON aqms_reading(device_id, measured_at DESC);
+CREATE INDEX idx_firmware_project_time ON firmware_release(project_name, created_at DESC);
