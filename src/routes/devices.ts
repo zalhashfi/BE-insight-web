@@ -131,12 +131,6 @@ export function createDevicesRouter() {
           [device.id]
         );
         totalReadings = Number(aqmsLogs?.[0]?.count || 0);
-      } else if (device.type === 'soc') {
-        const socLogs = await query<CountRow[]>(
-          'SELECT COUNT(*) as count FROM soc_reading WHERE device_id = ?',
-          [device.id]
-        );
-        totalReadings = Number(socLogs?.[0]?.count || 0);
       }
 
       return c.json(
@@ -172,8 +166,8 @@ export function createDevicesRouter() {
       if (!uuid || !name || !type || !project_name) {
         return c.json({ error: 'Missing required fields: uuid, name, type, project_name' }, 400);
       }
-      if (!['aqms', 'soc'].includes(type)) {
-        return c.json({ error: 'Invalid type. Must be "aqms" or "soc"' }, 400);
+      if (type !== 'aqms') {
+        return c.json({ error: 'Invalid type. Must be "aqms"' }, 400);
       }
 
       if (mac_address) {
@@ -242,7 +236,7 @@ export function createDevicesRouter() {
         params.push(name);
       }
       if (type !== undefined) {
-        if (!['aqms', 'soc'].includes(type)) return c.json({ error: 'Invalid type' }, 400);
+        if (type !== 'aqms') return c.json({ error: 'Invalid type' }, 400);
         updates.push('type = ?');
         params.push(type);
       }

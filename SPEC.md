@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS device (
     uuid VARCHAR(64) UNIQUE NOT NULL,
     mac_address VARCHAR(17) UNIQUE NULL,
     name VARCHAR(100) NOT NULL,
-    type ENUM('aqms', 'soc') NOT NULL,
+    type ENUM('aqms') NOT NULL,
     project_name VARCHAR(100) NOT NULL,
     current_version VARCHAR(30) DEFAULT '1.0.0',
     latitude DECIMAL(10,7) NULL,
@@ -47,25 +47,7 @@ CREATE TABLE IF NOT EXISTS aqms_reading (
 );
 CREATE INDEX idx_aqms_device_time ON aqms_reading(device_id, measured_at DESC);
 
--- 4. SOC Reading (Hot Path)
-CREATE TABLE IF NOT EXISTS soc_reading (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    device_id BIGINT NOT NULL,
-    ph DECIMAL(3,2),
-    no2 DECIMAL(5,2),
-    ec DECIMAL(6,1),
-    temperature DECIMAL(4,1),
-    humidity DECIMAL(4,1),
-    n DECIMAL(5,2),
-    p DECIMAL(5,2),
-    k DECIMAL(5,2),
-    measured_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
-);
-CREATE INDEX idx_soc_device_time ON soc_reading(device_id, measured_at DESC);
-
--- 5. Firmware Release
+-- 4. Firmware Release
 CREATE TABLE IF NOT EXISTS firmware_release (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     project_name VARCHAR(100) NOT NULL,
@@ -106,17 +88,16 @@ CREATE TABLE IF NOT EXISTS user (
 2. `POST /api/v1/iot/ingest`
    - Headers: `x-api-key: <UUID>`
    - Body: JSON data payload
-   - Action: Validasi device aktif via `uuid`. Masukkan raw payload ke `raw_data_log`. Parse sesuai `type` (`aqms` / `soc`), simpan ke tabel reading yang sesuai.
+   - Action: Validasi device aktif via `uuid`. Masukkan raw payload ke `raw_data_log`. Parse sesuai `type` (`aqms`), simpan ke tabel `aqms_reading`.
 3. `GET /api/v1/iot/ota`
    - Headers: `x-api-key: <UUID>`
    - Query: `?current_version=1.0.0`
    - Action: Update `current_version` di `device` jika beda. Cek rilis firmware terbaru untuk `project_name`. Kembalikan URL binary jika ada update baru.
 
-### B. Hot Path Sensor Data Query (`/api/v1/data`)
 1. `GET /api/v1/data/devices/:uuid/data/:sensorType`
-   - Params: `uuid`, `sensorType` (`aqms` | `soc`)
+   - Params: `uuid`, `sensorType` (`aqms` — satu-satunya nilai yang didukung)
    - Query: `?start_time=ISO&end_time=ISO&limit=100`
-   - Action: Ambil data sensor terstruktur dari tabel yang bersesuaian.
+   - Action: Ambil data sensor terstruktur dari tabel `aqms_reading`.
 
 ### C. Auth & User Management (`/api/v1/auth`)
 1. `POST /api/v1/auth/register` (Admin / Initial Setup, always writes `viewer`)

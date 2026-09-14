@@ -90,44 +90,27 @@ export function createIotRouter(deps: { iotSecret: string }) {
 
       const measuredAt = payload.created_at ? new Date(payload.created_at) : new Date();
 
-      // Hot Path based on device type
-      if (currentDevice.type === 'aqms') {
-        await query(
-          `INSERT INTO aqms_reading
-            (device_id, pm25, no2, co, co2, temperature, humidity, ws, wd, measured_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            currentDevice.id,
-            payload.pm25 ?? null,
-            payload.no2 ?? null,
-            payload.co ?? null,
-            payload.co2 ?? null,
-            payload.temperature ?? payload.temp ?? null,
-            payload.humidity ?? payload.hum ?? null,
-            payload.ws ?? null,
-            payload.wd ?? null,
-            measuredAt,
-          ]
-        );
-      } else if (currentDevice.type === 'soc') {
-        await query(
-          `INSERT INTO soc_reading
-            (device_id, ph, no2, ec, temperature, humidity, n, p, k, measured_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            currentDevice.id,
-            payload.ph ?? null,
-            payload.no2 ?? null,
-            payload.ec ?? null,
-            payload.temperature ?? payload.temp ?? null,
-            payload.humidity ?? payload.hum ?? null,
-            payload.n ?? null,
-            payload.p ?? null,
-            payload.k ?? null,
-            measuredAt,
-          ]
-        );
+      // Hot Path: AQMS only
+      if (currentDevice.type !== 'aqms') {
+        return c.json({ error: 'Unsupported device type' }, 400);
       }
+      await query(
+        `INSERT INTO aqms_reading
+          (device_id, pm25, no2, co, co2, temperature, humidity, ws, wd, measured_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          currentDevice.id,
+          payload.pm25 ?? null,
+          payload.no2 ?? null,
+          payload.co ?? null,
+          payload.co2 ?? null,
+          payload.temperature ?? payload.temp ?? null,
+          payload.humidity ?? payload.hum ?? null,
+          payload.ws ?? null,
+          payload.wd ?? null,
+          measuredAt,
+        ]
+      );
 
       return c.json({ message: 'Data ingested successfully' }, 200);
     } catch (err: unknown) {

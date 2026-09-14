@@ -9,8 +9,8 @@ export function createDataRouter() {
     const uuid = c.req.param('uuid');
     const sensorType = c.req.param('sensorType').toLowerCase();
 
-    if (sensorType !== 'aqms' && sensorType !== 'soc') {
-      return c.json({ error: 'Invalid sensorType. Must be "aqms" or "soc"' }, 400);
+    if (sensorType !== 'aqms') {
+      return c.json({ error: 'Invalid sensorType. Must be "aqms"' }, 400);
     }
 
     const startTime = c.req.query('start_time');
@@ -37,7 +37,7 @@ export function createDataRouter() {
       }
 
       const device = devices[0];
-      const table = sensorType === 'aqms' ? 'aqms_reading' : 'soc_reading';
+      const table = 'aqms_reading';
 
       let sql = `SELECT * FROM ${table} WHERE device_id = ?`;
       const params: Array<string | number | null> = [device.id];

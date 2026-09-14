@@ -1,7 +1,6 @@
 # Project Context: BE-insight-web
 
-## 1. Overview
-`BE-insight-web` adalah backend RESTful API untuk ekosistem Internet of Things (IoT) monitoring lingkungan (AQMS - Air Quality Monitoring System dan SOC - Soil / Water Quality Monitoring).
+`BE-insight-web` adalah backend RESTful API untuk ekosistem Internet of Things (IoT) monitoring lingkungan (AQMS - Air Quality Monitoring System).
 Proyek ini bertindak sebagai jembatan penampung data sensor dari perangkat mikrokontroler (ESP32), penyedia update firmware over-the-air (OTA), serta penyaji data untuk dashboard web dan otentikasi manajemen pengguna.
 
 ## 2. Platform & Deployment Target
@@ -13,6 +12,5 @@ Proyek ini bertindak sebagai jembatan penampung data sensor dari perangkat mikro
 - **Unified Backend & DB**: Auth, device management, dan IoT ingestion berada dalam satu instance backend dan satu database MySQL.
 - **Pure SQL approach**: Tidak menggunakan ORM berat untuk query harian, melainkan SQL murni teroptimasi guna efisiensi resource dan pembelajaran.
 - **Dual Path Storage**:
-  - *Cold Path*: Payload JSON mentah disimpan apa adanya ke `raw_data_log` untuk kebutuhan audit dan debugging payload sensor yang rusak.
-  - *Hot Path*: Payload terurai dan divalidasi disimpan ke tabel spesifik (`aqms_reading` atau `soc_reading`) dengan indeks waktu untuk query cepat.
+  - *Hot Path*: Payload terurai dan divalidasi disimpan ke tabel `aqms_reading` dengan indeks waktu untuk query cepat.
 - **Manual UUID Assignment**: Penentuan UUID perangkat dilakukan secara manual saat registrasi (bukan auto-generated).
