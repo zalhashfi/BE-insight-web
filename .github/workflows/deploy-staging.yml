@@ -1,0 +1,55 @@
+name: Deploy Staging (VPS)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: be-staging-vps
+  cancel-in-progress: true
+
+# Least privilege: this workflow only reads code; deployment happens via SSH
+# from the runner to the VPS using the key stored in repo secrets.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  deploy:
+    name: Deploy to VPS staging
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull & rebuild be-staging
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          port: ${{ secrets.STAGING_SSH_PORT }}
+          script: |
+            set -e
+            cd ~/apps/insight-staging/BE-insight-web
+            git fetch origin main
+            git reset --hard origin/main
+            # Recreate BE service only; FE/MySQL untouched.
+            docker compose up -d --build be-staging
+            # Idempotent: CREATE TABLE IF NOT EXISTS; seed only when SEED_ADMIN_* set.
+            docker compose run --rm be-staging npm run db:init
+            sleep 5
+            curl -sf localhost:3001/health
+            curl -s -o /dev/null -w "legacy path %{http_code} (expect 404)\n" localhost:3001/api/devices
+            curl -s -o /dev/null -w "v1 guard    %{http_code} (expect 401)\n" localhost:3001/api/v1/devices

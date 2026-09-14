@@ -1,0 +1,75 @@
+# docker-compose.yml — orkestrasi staging lengkap (BE + FE + MySQL).
+#
+# File ini hidup di repo BE karena BE adalah "jantung" stack, tapi mengelola
+# ketiga service. Layout yang diharapkan di VPS (~/apps/insight-staging/):
+#
+#   BE-insight-web/          (clone repo ini — berisi docker-compose.yml ini)
+#   FE-insight-web/          (clone sibling repo)
+#   BE-insight-web/.env      (salinan deploy.env.example yang diisi secret — TIDAK pernah di-push)
+#
+# Setup sekali di VPS:
+#   cd ~/apps/insight-staging/BE-insight-web
+#   cp deploy.env.example .env   # lalu isi secret asli
+#   docker compose up -d
+#   docker compose run --rm be-staging npm run db:init   # sekali / saat skema berubah
+#
+# Semua port hanya ter-bind ke 127.0.0.1; akses publik lewat Cloudflare Tunnel -> localhost:8080.
+
+services:
+  mysql-staging:
+    image: mysql:8.4
+    container_name: insight-mysql-staging
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: insight_be_staging
+      MYSQL_USER: insight_staging
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql-staging-data:/var/lib/mysql
+    ports:
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      retries: 20
+
+  be-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: insight-be-staging
+    restart: unless-stopped
+    depends_on:
+      mysql-staging:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: mysql-staging
+      DB_PORT: 3306
+      DB_NAME: insight_be_staging
+      DB_USER: insight_staging
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      IOT_DEVICE_SECRET: ${IOT_DEVICE_SECRET}
+    ports:
+      - "127.0.0.1:3001:3000"
+
+  fe-staging:
+    build:
+      context: ../FE-insight-web
+      dockerfile: Dockerfile
+      args:
+        # FE memanggil /api lewat proxy nginx di containernya sendiri (same-origin);
+        # nilai ini hanya base URL untuk dev-server proxy Vite.
+        VITE_API_URL: https://staging-insight.biru-langit.com
+    container_name: insight-fe-staging
+    restart: unless-stopped
+    depends_on:
+      - be-staging
+    ports:
+      - "127.0.0.1:8080:80"
+
+volumes:
+  mysql-staging-data:
